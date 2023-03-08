@@ -31,8 +31,16 @@ class ProcessingUnitMapping {
      *  to which this PU belongs */
     int osCpuIdx_;
 
-    /*! operating system Cache index */
+    /*!
+     * Operating system Cache index
+     *
+     * \note Could be -1 if hwloc is not able to determine
+     *       the cache index in the OS
+     */
     int osCacheIdx[NUM_CACHES];     // element [0] is the index of the L1 cache
+
+    /*! hwloc logical Cache index */
+    int hwlocCacheIdx[NUM_CACHES];     // element [0] is the index of the L1 cache
 
     void printOnOstream(std::ostream &os) const;
 
@@ -47,9 +55,10 @@ public:
         osCpuIdx_ = osIdx;
     }
 
-    void setCache(int cacheLevel, int osIdx) {
+    void setCache(int cacheLevel, int osIdx, int hwlocLogicalIdx) {
         if (cacheLevel >= 1 && cacheLevel <= NUM_CACHES) {
             osCacheIdx[cacheLevel-1] = osIdx;
+            hwlocCacheIdx[cacheLevel-1] = hwlocLogicalIdx;
         }
     }
 
@@ -57,17 +66,31 @@ public:
      * Returns the Operating System index of this PU,
      * or -1 if not available
      */
-    int getOsIdx() const {
+    int getPuOsIdx() const {
         return osPuIdx_;
     }
 
     /*!
      * Returns the OS index of the specified cache level
      * connected to the core.
+     *
+     * \note Could be -1 if not detected by hwloc
      */
     int getCacheOsIdx(int cacheLevel) const {
         if (cacheLevel >= 1 && cacheLevel <= NUM_CACHES) {
             return osCacheIdx[cacheLevel-1];
+        } else {
+            return -1;
+        }
+    }
+
+    /*!
+     * Returns the hwloc logical index of the specified cache level
+     * connected to the core.
+     */
+    int getCacheHwlocIdx(int cacheLevel) const {
+        if (cacheLevel >= 1 && cacheLevel <= NUM_CACHES) {
+            return hwlocCacheIdx[cacheLevel-1];
         } else {
             return -1;
         }
@@ -83,7 +106,7 @@ public:
     /*!
      * Returns the OS index of the CPU connected to this PU.
      */
-    int getCoreCpuIdx() const {
+    int getCoreCpuOsIdx() const {
         return osCpuIdx_;
     }
 

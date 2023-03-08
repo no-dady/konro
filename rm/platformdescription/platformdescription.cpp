@@ -73,25 +73,25 @@ struct PlatformDescription::PlatformDescriptionImpl {
                 case HWLOC_OBJ_CORE:
                     puMapping.setCore(parent->os_index);
                     break;
-#if HWLOC_API_VERSION >= 0x00020500
+#if HWLOC_API_VERSION >= 0x00020100
                 case HWLOC_OBJ_L1CACHE:
-                    puMapping.setCache(1, parent->os_index);
+                    puMapping.setCache(1, parent->os_index, parent->logical_index);
                     break;
                 case HWLOC_OBJ_L2CACHE:
-                    puMapping.setCache(2, parent->os_index);
+                    puMapping.setCache(2, parent->os_index, parent->logical_index);
                     break;
                 case HWLOC_OBJ_L3CACHE:
-                    puMapping.setCache(3, parent->os_index);
+                    puMapping.setCache(3, parent->os_index, parent->logical_index);
                     break;
                 case HWLOC_OBJ_L4CACHE:
-                    puMapping.setCache(4, parent->os_index);
+                    puMapping.setCache(4, parent->os_index, parent->logical_index);
                     break;
                 case HWLOC_OBJ_L5CACHE:
-                    puMapping.setCache(5, parent->os_index);
+                    puMapping.setCache(5, parent->os_index, parent->logical_index);
                     break;
 #else
                 case HWLOC_OBJ_CACHE:
-                    puMapping.setCache(parent->attr->cache.depth, parent->os_index);
+                    puMapping.setCache(parent->attr->cache.depth, parent->os_index, parent->logical_index);
                     break;
 #endif
                 default:
