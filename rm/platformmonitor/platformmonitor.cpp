@@ -49,7 +49,11 @@ struct PlatformMonitor::PlatformMonitorImpl {
     void setBatteryModuleNames(const std::string &names) {
         batteryChips = rmcommon::tsplit(names, ",");
         log4cpp::Category::getRoot().info("setBatteryModuleNames: %s", names.c_str());
-        log4cpp::Category::getRoot().info("setBatteryModuleNames: %s", batteryChips[0].c_str());
+        if (batteryChips.empty()) {
+            log4cpp::Category::getRoot().info("setBatteryModuleNames: no battery names");
+        } else {
+            log4cpp::Category::getRoot().info("setBatteryModuleNames: %s", batteryChips[0].c_str());
+        }
     }
 
     bool isCpuChip(string chip) {
@@ -57,14 +61,18 @@ struct PlatformMonitor::PlatformMonitorImpl {
     }
 
     bool isBatteryChip(string chip) {
+        if (chip.empty()) {
+            return false;
+        }
         // Example:
         // chip is "BAT0"
         // batteryChips is [ "BAT" ]
 
         // remove trailing digits from string "chip"
-        // This works because std::string::npos is (unsigned ..)-1
-        // and npos+1 becomes 0 in case there are no trailing digits
-        chip.erase(chip.find_last_not_of("0123456789")+1);
+        string::size_type pos = chip.find_first_of("0123456789");
+        if (pos != string::npos) {
+            chip.erase(pos);
+        }
         return find(begin(batteryChips), end(batteryChips), chip) != end(batteryChips);
     }
 
