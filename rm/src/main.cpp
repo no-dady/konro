@@ -89,7 +89,9 @@ int main(int argc, char *argv[])
             configFile = optarg;
             break;
         case 'l':
-            logLevel = optarg;
+            if (optarg != nullptr) {
+                logLevel = optarg;
+            }
             break;
         default:
             std::cout << "Unknown option\n"

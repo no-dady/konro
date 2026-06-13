@@ -207,13 +207,13 @@ void ProcListener::forwardEvent(uint8_t *data, size_t len)
     struct proc_event *ev = reinterpret_cast<struct proc_event *>(data);
 
     switch (ev->what) {
-    case proc_event::PROC_EVENT_FORK:
+    case PROC_EVENT_FORK:
         bus_.publish(new ForkEvent(data, len));
         break;
-    case proc_event::PROC_EVENT_EXEC:
+    case PROC_EVENT_EXEC:
         bus_.publish(new ExecEvent(data, len));
         break;
-    case proc_event::PROC_EVENT_EXIT:
+    case PROC_EVENT_EXIT:
         bus_.publish(new ExitEvent(data, len));
         break;
         /* Other event types: PROC_EVENT_NONE, PROC_EVENT_UID, PROC_EVENT_GID,

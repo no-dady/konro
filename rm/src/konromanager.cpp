@@ -10,6 +10,7 @@
 #include "proclistener.h"
 #include "konrohttp.h"
 #include "policytimer.h"
+#include "securitymonitor.h"
 #include "eventbus.h"
 #include <unistd.h>
 #include <log4cpp/Appender.hh>
@@ -49,6 +50,7 @@ struct KonroManager::KonroManagerImpl {
     rp::PolicyManager *policyManager;
     rp::PolicyTimer *policyTimer;
     PlatformMonitor *platformMonitor;
+    SecurityMonitor *securityMonitor;
 
     KonroManagerImpl() {
         procListener = nullptr;
@@ -57,6 +59,7 @@ struct KonroManager::KonroManagerImpl {
         policyManager = nullptr;
         policyTimer = nullptr;
         platformMonitor = nullptr;
+        securityMonitor = nullptr;
     }
 
     ~KonroManagerImpl() {
@@ -66,6 +69,7 @@ struct KonroManager::KonroManagerImpl {
         delete policyManager;
         delete policyTimer;
         delete platformMonitor;
+        delete securityMonitor;
     }
 };
 
@@ -112,8 +116,10 @@ void KonroManager::loadConfiguration(std::string configFile)
     httpListenPort_ = configRead(config, "http", "listenport", 8080);
     changeContainerCgroup_ = configRead(config, "container", "changecontainercgroup", 1);
     changeKubernetesCgroup_ = configRead(config, "kubernetes", "changekubernetescgroup", 1);
+    cfgSecurityPeriod_ = configRead(config, "securitymonitor", "securityperiod", 10);
 
     cat_.info("MAIN configuration: policy = %s", cfgPolicyName_.c_str());
+    cat_.info("MAIN configuration: security monitor period = %d", cfgSecurityPeriod_);
     cat_.info("MAIN configuration: policy timer seconds = %d", cfgTimerSeconds_);
     cat_.info("MAIN configuration: monitor period seconds = %d", cfgMonitorPeriod_);
     cat_.info("MAIN configuration: CPU module names = %s", cfgCpuModuleNames_.c_str());
@@ -138,6 +144,9 @@ void KonroManager::run()
     pimpl_->procListener = new wm::ProcListener(pimpl_->eventBus);
     pimpl_->platformMonitor = new PlatformMonitor(pimpl_->eventBus, pimpl_->platformDescription, cfgMonitorPeriod_);
     pimpl_->policyTimer = new rp::PolicyTimer(pimpl_->eventBus, cfgTimerSeconds_);
+    if (cfgSecurityPeriod_ > 0) {
+        pimpl_->securityMonitor = new SecurityMonitor(pimpl_->eventBus, cfgSecurityPeriod_);
+    }
 
     pimpl_->platformDescription.logTopology();
     pimpl_->platformMonitor->setCpuModuleNames(cfgCpuModuleNames_);
@@ -151,6 +160,7 @@ void KonroManager::run()
     // 4. PlatformMonitor runs in a separate thread
     // 5. KonroHttp runs in a separate thread
     // 6. PolicyTimer runs in a separate thread
+    // 7. SecurityMonitor runs in a separate thread (optional)
 
     cat_.info("MAIN starting WorkloadManager thread");
     pimpl_->workloadManager->start();
@@ -169,6 +179,11 @@ void KonroManager::run()
     cat_.info("MAIN starting PlatformMonitor thread");
     pimpl_->platformMonitor->start();
 
+    if (pimpl_->securityMonitor != nullptr) {
+        cat_.info("MAIN starting SecurityMonitor thread");
+        pimpl_->securityMonitor->start();
+    }
+
     cat_.info("MAIN starting HTTP thread");
     pimpl_->http->start();
 
@@ -184,6 +199,9 @@ void KonroManager::run()
         pimpl_->policyTimer->stop();
     }
     pimpl_->platformMonitor->stop();
+    if (pimpl_->securityMonitor != nullptr) {
+        pimpl_->securityMonitor->stop();
+    }
     pimpl_->workloadManager->stop();
     pimpl_->policyManager->stop();
 
@@ -196,6 +214,9 @@ void KonroManager::run()
         pimpl_->policyTimer->join();
     }
     pimpl_->platformMonitor->join();
+    if (pimpl_->securityMonitor != nullptr) {
+        pimpl_->securityMonitor->join();
+    }
     pimpl_->workloadManager->join();
     pimpl_->policyManager->join();
 

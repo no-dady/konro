@@ -20,6 +20,14 @@ public:
         KUBERNETES
     };
 
+    enum class SecurityLevel {
+        UNCLASSIFIED = 0,
+        LOW,
+        MEDIUM,
+        HIGH,
+        CRITICAL
+    };
+
 private:
     /*! The pid of the application in Konro's namespace */
     pid_t pid_;
@@ -35,9 +43,12 @@ private:
     namespace_t ns_;
 
     std::string cgroupDir_;
+    SecurityLevel securityLevel_;
 
-    App(pid_t pid, AppType appType, std::string appName, pid_t nsPid, namespace_t ns) :
-        pid_(pid), appType_(appType), name_(appName), nsPid_(nsPid), ns_(ns) {}
+    App(pid_t pid, AppType appType, std::string appName, pid_t nsPid, namespace_t ns,
+        SecurityLevel securityLevel = SecurityLevel::UNCLASSIFIED) :
+        pid_(pid), appType_(appType), name_(appName), nsPid_(nsPid), ns_(ns),
+        securityLevel_(securityLevel) {}
 
 public:
     typedef std::shared_ptr<App> AppPtr;
@@ -56,10 +67,11 @@ public:
      * \returns the shared_ptr to the App
      */
     static std::shared_ptr<App> makeApp(pid_t pid, AppType appType, std::string appName = "",
-                                        pid_t nsPid = 0, namespace_t ns = 0) {
+                                        pid_t nsPid = 0, namespace_t ns = 0,
+                                        SecurityLevel securityLevel = SecurityLevel::UNCLASSIFIED) {
         // Note: to use std::make_shared, the constructor must be public;
         //       in this context it is better to use new App(...)
-        return std::shared_ptr<App>(new App(pid, appType, appName, nsPid, ns));
+        return std::shared_ptr<App>(new App(pid, appType, appName, nsPid, ns, securityLevel));
     }
 
     /*!
@@ -77,6 +89,19 @@ public:
             return AppType::KUBERNETES;
         else
             return AppType::UNKNOWN;
+    }
+
+    static SecurityLevel getSecurityLevelByName(const std::string &level) noexcept {
+        if (level == "LOW")
+            return SecurityLevel::LOW;
+        else if (level == "MEDIUM")
+            return SecurityLevel::MEDIUM;
+        else if (level == "HIGH")
+            return SecurityLevel::HIGH;
+        else if (level == "CRITICAL")
+            return SecurityLevel::CRITICAL;
+        else
+            return SecurityLevel::UNCLASSIFIED;
     }
 
     /*!
@@ -149,6 +174,14 @@ public:
 
     void setCgroupDir(const std::string &dir) {
         cgroupDir_ = dir;
+    }
+
+    SecurityLevel getSecurityLevel() const noexcept {
+        return securityLevel_;
+    }
+
+    void setSecurityLevel(SecurityLevel level) {
+        securityLevel_ = level;
     }
 };
 

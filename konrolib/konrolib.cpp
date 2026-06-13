@@ -120,6 +120,11 @@ std::string sendFeedbackMessage(int feedback)
 
 std::string sendAddMessage()
 {
+    return sendAddMessage(0);
+}
+
+std::string sendAddMessage(int securityLevel)
+{
 #ifdef TIMING
     using namespace std::chrono;
     high_resolution_clock::time_point _start_ = high_resolution_clock::now();
@@ -130,6 +135,15 @@ std::string sendAddMessage()
     j["pid"] = getpid();
     j["namespace"] = getPidNamespace();
     j["name"] = getProgramName();
+    if (securityLevel != 0) {
+        switch (securityLevel) {
+        case 1: j["securityLevel"] = "LOW"; break;
+        case 2: j["securityLevel"] = "MEDIUM"; break;
+        case 3: j["securityLevel"] = "HIGH"; break;
+        case 4: j["securityLevel"] = "CRITICAL"; break;
+        default: break;
+        }
+    }
 
     std::string out = sendPost("add", j.dump());
 

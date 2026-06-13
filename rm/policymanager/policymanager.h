@@ -9,6 +9,7 @@
 #include "timerevent.h"
 #include "monitorevent.h"
 #include "feedbackevent.h"
+#include "securityevent.h"
 #include "appmapping.h"
 #include "policies/ibasepolicy.h"
 #include "platformdescription.h"
@@ -36,7 +37,8 @@ public:
         NoPolicy,
         RandPolicy,
         PuProgressivePolicy,
-        MinCoresPolicy
+        MinCoresPolicy,
+        SecurityAwarePolicy
     };
 
 private:
@@ -83,6 +85,7 @@ private:
      * \param ev the event to process
      */
     void processFeedbackEvent(std::shared_ptr<const rmcommon::FeedbackEvent> event);
+    void processSecurityEvent(std::shared_ptr<const rmcommon::SecurityEvent> event);
 
     /* for debugging */
     void dumpApps() const;

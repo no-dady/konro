@@ -9,6 +9,7 @@ add_subdirectory (platformcontrol)
 add_subdirectory (workloadmanager)
 add_subdirectory (policymanager)
 add_subdirectory (platformmonitor)
+add_subdirectory (securitymonitor)
 
 file(GLOB konro_SOURCES "src/*.cpp")
 file(GLOB konro_HEADERS "src/*.h")
@@ -24,6 +25,7 @@ target_link_libraries(konro PUBLIC
     workloadmanager
     policymanager
     platformmonitor
+    securitymonitor
     ${LOG4CPP_LIBRARIES})
 
 configure_file(konro.ini.in konro.ini)
