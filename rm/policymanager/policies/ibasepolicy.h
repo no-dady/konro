@@ -5,7 +5,9 @@
 #include "platformdescription.h"
 #include "monitorevent.h"
 #include "feedbackevent.h"
+#include "sai.h"
 #include <memory>
+#include <string>
 
 namespace rp {
 
@@ -49,6 +51,12 @@ public:
      * in the AppMapping class.
      */
     virtual void feedback(AppMappingPtr appMapping, int feedback) = 0;
+
+    virtual void securityAlert(AppMappingPtr appMapping, float sai,
+                               const sec::SecurityFactors &factors,
+                               const std::string &labels) {
+        // Default empty implementation for backward compatibility
+    }
 };
 
 }   // namespace rp

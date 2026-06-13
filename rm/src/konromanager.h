@@ -20,6 +20,7 @@ class KonroManager {
     int httpListenPort_;
     bool changeContainerCgroup_;
     bool changeKubernetesCgroup_;
+    int cfgSecurityPeriod_;
 
     std::string defaultConfigFilePath();
     void setupLogging();

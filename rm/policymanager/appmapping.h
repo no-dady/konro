@@ -8,6 +8,8 @@
 #include "cpusetcontrol.h"
 #include "numericvalue.h"
 #include "memorycontrol.h"
+#include "pidscontrol.h"
+#include "policies/secstate.h"
 
 #ifdef TIMING
 #include <log4cpp/Category.hh>
@@ -40,13 +42,22 @@ class AppMapping {
     int maxMemory_;
     /*! last feedback value received from the app */
     int lastFeedback_;
+    rmcommon::App::SecurityLevel securityLevel_;
+    float sai_;
+    rp::StateTracker secState_;
+    bool quarantine_;
+    int baselinePids_;
 
 public:
     AppMapping(std::shared_ptr<rmcommon::App> app) :
         app_(app),
         minMemory_(-1),
         maxMemory_(-1),
-        lastFeedback_(-1)
+        lastFeedback_(-1),
+        securityLevel_(app->getSecurityLevel()),
+        sai_(0.0f),
+        quarantine_(false),
+        baselinePids_(-1)
     {
     }
     ~AppMapping() = default;
@@ -153,6 +164,55 @@ public:
 
     void setLastFeedback(int feedback) {
         lastFeedback_ = feedback;
+    }
+
+    rmcommon::App::SecurityLevel getSecurityLevel() const noexcept {
+        return securityLevel_;
+    }
+
+    void setSecurityLevel(rmcommon::App::SecurityLevel level) {
+        securityLevel_ = level;
+    }
+
+    float getSai() const noexcept {
+        return sai_;
+    }
+
+    void setSai(float sai) {
+        sai_ = sai;
+    }
+
+    /*! Per-app containment state machine (pure; advanced by the policy). */
+    rp::StateTracker &secState() noexcept {
+        return secState_;
+    }
+
+    bool isQuarantine() const noexcept {
+        return quarantine_;
+    }
+
+    void setQuarantine(bool quarantine) {
+        quarantine_ = quarantine;
+    }
+
+    int getBaselinePids() const noexcept {
+        return baselinePids_;
+    }
+
+    void setBaselinePids(int pids) {
+        baselinePids_ = pids;
+    }
+
+    int getCurrentPids() {
+        return pc::PidsControl::instance().getCurrent(app_);
+    }
+
+    rmcommon::NumericValue getMaxPids() {
+        return pc::PidsControl::instance().getMax(app_);
+    }
+
+    void setMaxPids(rmcommon::NumericValue maxPids) {
+        pc::PidsControl::instance().setMax(maxPids, app_);
     }
 };
 

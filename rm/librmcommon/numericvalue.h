@@ -1,6 +1,7 @@
 #ifndef NUMERICVALUE_H
 #define NUMERICVALUE_H
 
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <limits>

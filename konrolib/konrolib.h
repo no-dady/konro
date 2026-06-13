@@ -41,11 +41,8 @@ namespace konro {
      */
     extern std::string sendFeedbackMessage(int feedback);
 
-
-    /*!
-     * Sends an add message to Konro in JSON format.
-     */
     extern std::string sendAddMessage();
+    extern std::string sendAddMessage(int securityLevel);
 
 }   // namespace feedback
 

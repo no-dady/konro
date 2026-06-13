@@ -107,13 +107,20 @@ struct KonroHttp::KonroHttpImpl {
             cat_.error("KONROHTTP invalid message: no type or ns specified");
             return;
         }
+        rmcommon::App::SecurityLevel securityLevel = rmcommon::App::SecurityLevel::UNCLASSIFIED;
+        if (j.contains("securityLevel")) {
+            std::string level = j["securityLevel"];
+            securityLevel = rmcommon::App::getSecurityLevelByName(level);
+            cat_.info("KONROHTTP security level for pid %ld: %s",
+                      static_cast<long>(nsPid), level.c_str());
+        }
         cat_.info("KONROHTTP publishing AddRequestEvent for pid %ld in ns %lu with name \"%s\" and type \"%s\"",
                   static_cast<long>(nsPid),
                   ns,
                   name.c_str(),
                   rmcommon::App::getAppTypeString(appType).c_str());
-        rmcommon::AddRequestEvent *event =
-                new rmcommon::AddRequestEvent(rmcommon::App::makeApp(pid, appType, name, nsPid, ns));
+        auto app = rmcommon::App::makeApp(pid, appType, name, nsPid, ns, securityLevel);
+        rmcommon::AddRequestEvent *event = new rmcommon::AddRequestEvent(app);
         event->setTimePoint(tp);
         bus_.publish(event);
     }

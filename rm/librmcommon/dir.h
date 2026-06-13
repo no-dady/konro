@@ -69,8 +69,8 @@ public:
 
 	explicit Dir(const char *dirname);
 
-	DirIterator begin() { return DirIterator(&entries[0]); }
-	DirIterator end() { return DirIterator(&entries[entries.size()]); }
+	DirIterator begin() { return entries.empty() ? DirIterator(nullptr) : DirIterator(&entries[0]); }
+	DirIterator end() { return entries.empty() ? DirIterator(nullptr) : DirIterator(&entries[0] + entries.size()); }
 
 	void add_entry(const DirEntry &de)
 	{
