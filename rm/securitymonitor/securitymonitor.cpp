@@ -4,28 +4,17 @@
 #include "addevent.h"
 #include "removeevent.h"
 #include "cgroupcontrol.h"
-#include "pidscontrol.h"
 #include <chrono>
 #include <thread>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
-#include <set>
+#include <cstring>
+#include <cstdlib>
+#include <dirent.h>
+#include <unistd.h>
 
 using namespace std;
-
-namespace {
-
-const vector<pair<string, string>> THREAT_PATTERNS = {
-    {"telnetd", "telnetd"},
-    {"merlinAgent", "merlinAgent"},
-    {"hping3", "hping3"},
-    {"ncat", "ncat"},
-    {"nmap", "nmap"},
-    {"busybox sh", "busybox_sh"},
-};
-
-} // anonymous namespace
 
 SecurityMonitor::SecurityMonitor(rmcommon::EventBus &bus, int securityPeriod) :
     cat_(log4cpp::Category::getRoot()),
@@ -47,6 +36,7 @@ void SecurityMonitor::processAddEvent(std::shared_ptr<const rmcommon::AddEvent> 
     auto app = event->getApp();
     lock_guard<mutex> lock(appsMutex_);
     apps_.insert(app);
+    baselines_[app->getPid()];      // create empty baseline
     cat_.info("SECURITYMONITOR added app pid %ld", (long)app->getPid());
 }
 
@@ -60,6 +50,7 @@ void SecurityMonitor::processRemoveEvent(std::shared_ptr<const rmcommon::RemoveE
                       });
     if (it != apps_.end()) {
         apps_.erase(it);
+        baselines_.erase(app->getPid());
         cat_.info("SECURITYMONITOR removed app pid %ld", (long)app->getPid());
     }
 }
@@ -79,78 +70,100 @@ vector<pid_t> SecurityMonitor::getCgroupPids(shared_ptr<rmcommon::App> app)
     return pids;
 }
 
-string SecurityMonitor::getProcessCmdline(pid_t pid)
+map<ino_t, pid_t> SecurityMonitor::socketInodeToPid(const vector<pid_t> &pids)
 {
-    ostringstream os;
-    os << "/proc/" << pid << "/cmdline";
-    fstream fs(os.str());
-    string cmdline;
-    if (fs.is_open()) {
-        if (getline(fs, cmdline)) {
-            replace(cmdline.begin(), cmdline.end(), '\0', ' ');
+    map<ino_t, pid_t> result;
+    for (pid_t pid : pids) {
+        ostringstream fdDir;
+        fdDir << "/proc/" << pid << "/fd";
+        DIR *d = opendir(fdDir.str().c_str());
+        if (!d)
+            continue;
+        struct dirent *ent;
+        while ((ent = readdir(d)) != nullptr) {
+            ostringstream linkPath;
+            linkPath << fdDir.str() << "/" << ent->d_name;
+            char target[128];
+            ssize_t n = readlink(linkPath.str().c_str(), target, sizeof(target) - 1);
+            if (n <= 0)
+                continue;
+            target[n] = '\0';
+            // links look like "socket:[12345]"
+            if (strncmp(target, "socket:[", 8) == 0) {
+                ino_t inode = static_cast<ino_t>(strtoul(target + 8, nullptr, 10));
+                if (inode > 0)
+                    result[inode] = pid;
+            }
         }
+        closedir(d);
     }
-    return cmdline;
+    return result;
 }
 
-bool SecurityMonitor::isThreat(const string &cmdline, string &threatName)
+void SecurityMonitor::countConnections(const set<ino_t> &inodes,
+                                       int &distinctDests, int &synSent, int &total)
 {
-    for (const auto &pattern : THREAT_PATTERNS) {
-        if (cmdline.find(pattern.first) != string::npos) {
-            threatName = pattern.second;
-            return true;
+    distinctDests = 0;
+    synSent = 0;
+    total = 0;
+    set<string> dests;
+    const char *files[] = { "/proc/net/tcp", "/proc/net/tcp6" };
+    for (const char *file : files) {
+        ifstream fs(file);
+        if (!fs.is_open())
+            continue;
+        string line;
+        getline(fs, line);          // skip header
+        while (getline(fs, line)) {
+            istringstream is(line);
+            string sl, local, rem, st, txrx, trwhen, retr, uid, timeout, inodeStr;
+            if (!(is >> sl >> local >> rem >> st >> txrx >> trwhen >> retr >> uid >> timeout >> inodeStr))
+                continue;
+            ino_t inode = static_cast<ino_t>(strtoul(inodeStr.c_str(), nullptr, 10));
+            if (inodes.find(inode) == inodes.end())
+                continue;
+            ++total;
+            if (st == "02")         // TCP_SYN_SENT
+                ++synSent;
+            string remIp = rem.substr(0, rem.find(':'));
+            // ignore the all-zero remote address (listening / unconnected)
+            if (remIp.find_first_not_of('0') != string::npos)
+                dests.insert(remIp);
         }
     }
-    return false;
-}
-
-int SecurityMonitor::computeAnomalyScore(shared_ptr<rmcommon::App> app,
-                                          const vector<pid_t> &pids,
-                                          const vector<string> &threats)
-{
-    int baselinePids = app->getSecurityLevel() == rmcommon::App::SecurityLevel::CRITICAL ? 8 :
-                       app->getSecurityLevel() == rmcommon::App::SecurityLevel::HIGH ? 6 :
-                       app->getSecurityLevel() == rmcommon::App::SecurityLevel::MEDIUM ? 4 : 2;
-
-    int currentPids = static_cast<int>(pids.size());
-    int score = min(50 * currentPids / max(baselinePids, 1), 100);
-
-    for (size_t i = 0; i < threats.size(); ++i) {
-        score += 50;
-    }
-
-    return min(score, 200);
+    distinctDests = static_cast<int>(dests.size());
 }
 
 void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
 {
+    pid_t pid = app->getPid();
+    AppBaseline &base = baselines_[pid];
+
     vector<pid_t> pids = getCgroupPids(app);
-    vector<string> threats;
+    map<ino_t, pid_t> inodeMap = socketInodeToPid(pids);
+    set<ino_t> inodes;
+    for (const auto &kv : inodeMap)
+        inodes.insert(kv.first);
 
-    for (pid_t pid : pids) {
-        string cmdline = getProcessCmdline(pid);
-        string threatName;
-        if (isThreat(cmdline, threatName)) {
-            threats.push_back(threatName);
-            cat_.warn("SECURITYMONITOR threat detected in pid %ld: %s (cmdline: %s)",
-                      (long)pid, threatName.c_str(), cmdline.c_str());
-        }
-    }
+    int distinctDests = 0, synSent = 0, total = 0;
+    countConnections(inodes, distinctDests, synSent, total);
+    float halfOpenRatio = total > 0 ? static_cast<float>(synSent) / total : 0.0f;
 
-    int anomalyScore = computeAnomalyScore(app, pids, threats);
-    if (anomalyScore >= 50) {
-        ostringstream threatsOs;
-        for (size_t i = 0; i < threats.size(); ++i) {
-            if (i > 0) threatsOs << ",";
-            threatsOs << threats[i];
-        }
-        // Phase 3 bridge: map the legacy 0-200 score onto SAI [0,1] with an
-        // empty factor breakdown. Phase 4 replaces this with real per-cgroup
-        // factor sampling.
-        float sai = anomalyScore / 200.0f;
-        cat_.info("SECURITYMONITOR publishing SecurityEvent for pid %ld, sai=%.3f, threats=%s",
-                  (long)app->getPid(), sai, threatsOs.str().c_str());
-        rmcommon::SecurityEvent *event = new rmcommon::SecurityEvent(app, sai, sec::SecurityFactors{}, threatsOs.str());
+    sec::SecurityFactors f;
+    f.fanout = base.fanout.deviation(static_cast<float>(distinctDests));
+    f.halfOpen = base.halfOpen.deviation(halfOpenRatio);
+    base.fanout.update(static_cast<float>(distinctDests), alpha_);
+    base.halfOpen.update(halfOpenRatio, alpha_);
+
+    float sai = sec::computeSai(f, weights_);
+
+    if (sai >= publishThreshold_) {
+        ostringstream labels;
+        if (f.fanout > 0.5f) labels << "fanout ";
+        if (f.halfOpen > 0.5f) labels << "scan ";
+        cat_.info("SECURITYMONITOR publishing SecurityEvent for pid %ld, sai=%.3f, dests=%d synSent=%d",
+                  (long)pid, sai, distinctDests, synSent);
+        rmcommon::SecurityEvent *event = new rmcommon::SecurityEvent(app, sai, f, labels.str());
         bus_.publish(event);
     }
 }
