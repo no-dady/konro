@@ -134,6 +134,30 @@ void SecurityMonitor::countConnections(const set<ino_t> &inodes,
     distinctDests = static_cast<int>(dests.size());
 }
 
+string SecurityMonitor::getProcessComm(pid_t pid)
+{
+    ostringstream path;
+    path << "/proc/" << pid << "/comm";
+    ifstream fs(path.str());
+    string comm;
+    if (fs.is_open())
+        getline(fs, comm);
+    return comm;
+}
+
+uint64_t SecurityMonitor::getCpuUsec(shared_ptr<rmcommon::App> app)
+{
+    try {
+        map<string, uint64_t> stat = pc::CGroupControl().getContentAsMap("cpu", "cpu.stat", app);
+        auto it = stat.find("usage_usec");
+        if (it != stat.end())
+            return it->second;
+    } catch (...) {
+        // cpu.stat may be unavailable; treat as no sample
+    }
+    return 0;
+}
+
 void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
 {
     pid_t pid = app->getPid();
@@ -150,19 +174,55 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
     float halfOpenRatio = total > 0 ? static_cast<float>(synSent) / total : 0.0f;
 
     sec::SecurityFactors f;
+    ostringstream labels;
+
+    // A1/A2 network factors
     f.fanout = base.fanout.deviation(static_cast<float>(distinctDests));
     f.halfOpen = base.halfOpen.deviation(halfOpenRatio);
     base.fanout.update(static_cast<float>(distinctDests), alpha_);
     base.halfOpen.update(halfOpenRatio, alpha_);
 
+    // B1 process count
+    float procCount = static_cast<float>(pids.size());
+    f.forkRate = base.forkRate.deviation(procCount);
+    base.forkRate.update(procCount, alpha_);
+
+    // B2 unexpected exec (discrete). Populate the known set during warmup
+    // (reuse forkRate's warmup gate); after that, any new binary fires.
+    bool warming = base.forkRate.warming();
+    for (pid_t p : pids) {
+        string comm = getProcessComm(p);
+        if (comm.empty())
+            continue;
+        if (base.knownExecs.find(comm) == base.knownExecs.end()) {
+            base.knownExecs.insert(comm);
+            if (!warming) {
+                f.newExec = 1.0f;
+                labels << "exec:" << comm << " ";
+            }
+        }
+    }
+
+    // C1 cpu burst (rate of cgroup cpu usage between scans)
+    uint64_t cpuNow = getCpuUsec(app);
+    if (base.cpuInit && securityPeriod_ > 0) {
+        float rate = (cpuNow >= base.lastCpuUsec)
+                     ? static_cast<float>(cpuNow - base.lastCpuUsec) / securityPeriod_
+                     : 0.0f;
+        f.cpuBurst = base.cpuBurst.deviation(rate);
+        base.cpuBurst.update(rate, alpha_);
+    }
+    base.lastCpuUsec = cpuNow;
+    base.cpuInit = true;
+
     float sai = sec::computeSai(f, weights_);
 
     if (sai >= publishThreshold_) {
-        ostringstream labels;
         if (f.fanout > 0.5f) labels << "fanout ";
         if (f.halfOpen > 0.5f) labels << "scan ";
-        cat_.info("SECURITYMONITOR publishing SecurityEvent for pid %ld, sai=%.3f, dests=%d synSent=%d",
-                  (long)pid, sai, distinctDests, synSent);
+        if (f.cpuBurst > 0.5f) labels << "cpu ";
+        cat_.info("SECURITYMONITOR publishing SecurityEvent for pid %ld, sai=%.3f, dests=%d synSent=%d procs=%zu",
+                  (long)pid, sai, distinctDests, synSent, pids.size());
         rmcommon::SecurityEvent *event = new rmcommon::SecurityEvent(app, sai, f, labels.str());
         bus_.publish(event);
     }
