@@ -55,6 +55,10 @@ class SecurityMonitor : public rmcommon::BaseThread {
         connections whose inode belongs to the given set (from /proc/net/tcp{,6}). */
     void countConnections(const std::set<ino_t> &inodes,
                           int &distinctDests, int &synSent, int &total);
+    /*! Reads /proc/<pid>/comm (the executable name). */
+    std::string getProcessComm(pid_t pid);
+    /*! Reads cumulative cgroup cpu usage in microseconds (cpu.stat usage_usec). */
+    uint64_t getCpuUsec(std::shared_ptr<rmcommon::App> app);
 
     virtual void run() override;
 
