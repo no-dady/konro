@@ -152,6 +152,19 @@ public:
     std::map<std::string, uint64_t> getContentAsMap(const char *controllerName, const char *fileName, std::shared_ptr<rmcommon::App> app);
 
     /*!
+     * \brief Freezes or thaws all processes of an application.
+     *
+     * Writes to the cgroup.freeze interface file (located directly in the
+     * application's cgroup directory, not under a controller). Used by the
+     * security policy to quarantine a compromised app and to thaw it on /clear.
+     *
+     * \param freeze true to freeze (cgroup.freeze=1), false to thaw
+     * \param app the application to freeze/thaw
+     * \throws PcException in case of error
+     */
+    void setFreeze(bool freeze, std::shared_ptr<rmcommon::App> app) const;
+
+    /*!
      * \brief Adds an application under the management of Konro.
      *
      * The PID of the application is moved to a new direcotry of the cgroup hieararchy.

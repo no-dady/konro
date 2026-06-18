@@ -1,9 +1,30 @@
 #include "securityawarepolicy.h"
+#include "../cgroupcontrol.h"
 #include <vector>
 #include <algorithm>
 #include <sstream>
 
 namespace rp {
+
+float SecurityAwarePolicy::tolOffset(rmcommon::App::SecurityLevel level) const
+{
+    switch (level) {
+    case rmcommon::App::SecurityLevel::MEDIUM:   return 0.05f;
+    case rmcommon::App::SecurityLevel::HIGH:     return 0.10f;
+    case rmcommon::App::SecurityLevel::CRITICAL: return 0.15f;
+    default:                                     return 0.0f;  // UNCLASSIFIED/LOW
+    }
+}
+
+float SecurityAwarePolicy::stepFactor(rmcommon::App::SecurityLevel level) const
+{
+    switch (level) {
+    case rmcommon::App::SecurityLevel::HIGH:
+    case rmcommon::App::SecurityLevel::CRITICAL: return 0.80f;
+    case rmcommon::App::SecurityLevel::MEDIUM:   return 0.65f;
+    default:                                     return 0.50f;  // UNCLASSIFIED/LOW
+    }
+}
 
 SecurityAwarePolicy::SecurityAwarePolicy(const AppMappingSet &apps, PlatformDescription pd) :
     apps_(apps),
@@ -52,49 +73,26 @@ void SecurityAwarePolicy::addApp(AppMappingPtr appMapping)
     pid_t pid = appMapping->getPid();
     try {
         auto level = appMapping->getSecurityLevel();
-        int cpuMax = 100;
-        rmcommon::NumericValue pidsMax = rmcommon::NumericValue(16);
-        int initialPU = 0;
 
-        switch (level) {
-        case rmcommon::App::SecurityLevel::UNCLASSIFIED:
-            cpuMax = 100;
-            pidsMax = rmcommon::NumericValue(16);
-            break;
-        case rmcommon::App::SecurityLevel::LOW:
-            cpuMax = 80;
-            pidsMax = rmcommon::NumericValue(16);
-            break;
-        case rmcommon::App::SecurityLevel::MEDIUM:
-            cpuMax = 100;
-            pidsMax = rmcommon::NumericValue(32);
-            break;
-        case rmcommon::App::SecurityLevel::HIGH:
-            cpuMax = 150;
-            pidsMax = rmcommon::NumericValue(64);
-            break;
-        case rmcommon::App::SecurityLevel::CRITICAL:
-            cpuMax = -1; // max
-            pidsMax = rmcommon::NumericValue("max");
-            break;
+        // The security level governs security treatment, not the resource
+        // quota: every app starts with full cpu. HIGH/CRITICAL additionally
+        // get a dedicated (least-loaded) PU for isolation; others share PU 0.
+        bool isolate = (level == rmcommon::App::SecurityLevel::HIGH ||
+                        level == rmcommon::App::SecurityLevel::CRITICAL);
+        int pu = 0;
+        if (isolate && !appsOnPu_.empty()) {
+            pu = static_cast<int>(
+                std::min_element(appsOnPu_.begin(), appsOnPu_.end()) - appsOnPu_.begin());
         }
 
-        appMapping->setPuVector({{initialPU, initialPU}});
-        ++appsOnPu_[initialPU];
-        if (cpuMax > 0) {
-            appMapping->setCpuMax(cpuMax);
-        } else {
-            appMapping->setCpuMax(rmcommon::NumericValue("max"));
-        }
+        appMapping->setPuVector({{static_cast<short>(pu), static_cast<short>(pu)}});
+        ++appsOnPu_[pu];
+        appMapping->setCpuMax(rmcommon::NumericValue("max"));
         appMapping->setBaselinePids(appMapping->getCurrentPids());
 
-        std::ostringstream cpuOs, pidsOs;
-        cpuOs << appMapping->getCpuMax();
-        pidsOs << pidsMax;
-        log4cpp::Category::getRoot().info("SECURITYAWAREPOLICY addApp PID %ld level=%d PU=%d cpu.max=%s pids.max=%s",
-                                          (long)pid, (int)level, initialPU,
-                                          cpuOs.str().c_str(),
-                                          pidsOs.str().c_str());
+        log4cpp::Category::getRoot().info(
+            "SECURITYAWAREPOLICY addApp PID %ld level=%d PU=%d isolated=%d",
+            (long)pid, (int)level, pu, (int)isolate);
     } catch (std::exception &e) {
         log4cpp::Category::getRoot().error("SECURITYAWAREPOLICY addApp PID %ld: EXCEPTION %s",
                                            (long)pid, e.what());
@@ -153,19 +151,78 @@ void SecurityAwarePolicy::feedback(AppMappingPtr appMapping, int feedback)
     appMapping->setLastFeedback(feedback);
 }
 
+void SecurityAwarePolicy::applyState(AppMappingPtr appMapping, SecState state)
+{
+    auto &cat = log4cpp::Category::getRoot();
+    pid_t pid = appMapping->getPid();
+    auto level = appMapping->getSecurityLevel();
+    int numPUs = platformDescription_.getNumProcessingUnits();
+
+    switch (state) {
+    case SecState::OBSERVE:
+        // restore full allocation (idempotent)
+        appMapping->setQuarantine(false);
+        appMapping->setCpuMax(rmcommon::NumericValue("max"));
+        if (numPUs > 0)
+            appMapping->setPuVector({{0, static_cast<short>(numPUs - 1)}});
+        break;
+    case SecState::THROTTLE: {
+        int full = std::max(numPUs, 1) * 100;
+        int band = std::max(static_cast<int>(full * stepFactor(level)), 10);
+        appMapping->setCpuMax(band);
+        cat.warn("SECURITYAWAREPOLICY THROTTLE PID %ld cpu.max=%d%%", (long)pid, band);
+        break;
+    }
+    case SecState::RESTRICT: {
+        appMapping->setCpuMax(20);
+        appMapping->setPuVector({{0, 0}});
+        int currentPids = appMapping->getCurrentPids();
+        appMapping->setMaxPids(currentPids > 0 ? currentPids : 2);
+        cat.warn("SECURITYAWAREPOLICY RESTRICT PID %ld cpu.max=20%% PU=0 pids=%d",
+                 (long)pid, currentPids);
+        break;
+    }
+    case SecState::QUARANTINE:
+        appMapping->setQuarantine(true);
+        pc::CGroupControl().setFreeze(true, appMapping->getApp());
+        if (level == rmcommon::App::SecurityLevel::CRITICAL)
+            cat.error("SECURITYAWAREPOLICY OPERATOR ALERT: CRITICAL app PID %ld quarantined",
+                      (long)pid);
+        cat.error("SECURITYAWAREPOLICY QUARANTINE PID %ld frozen (cgroup.freeze=1)", (long)pid);
+        break;
+    }
+}
+
 void SecurityAwarePolicy::securityAlert(AppMappingPtr appMapping, float sai,
                                         const sec::SecurityFactors &factors,
                                         const std::string &labels)
 {
-    // Phase 3: record the SAI and log. The graduated state-machine response
-    // (throttle/restrict/freeze + recovery + contention) is implemented in
-    // Phase 5; this keeps the new event/type contract wired end-to-end.
     (void)factors;
     pid_t pid = appMapping->getPid();
     appMapping->setSai(sai);
-    log4cpp::Category::getRoot().info(
-        "SECURITYAWAREPOLICY alert PID %ld: sai=%.3f labels=%s",
-        (long)pid, sai, labels.c_str());
+
+    SecState prev = appMapping->secState().state();
+    SecState ns = appMapping->secState().step(sai, thresholds_,
+                                              tolOffset(appMapping->getSecurityLevel()));
+
+    if (ns != prev) {
+        log4cpp::Category::getRoot().info(
+            "SECURITYAWAREPOLICY PID %ld %d->%d sai=%.3f labels=%s",
+            (long)pid, (int)prev, (int)ns, sai, labels.c_str());
+        applyState(appMapping, ns);
+    }
+}
+
+void SecurityAwarePolicy::clearApp(AppMappingPtr appMapping)
+{
+    pid_t pid = appMapping->getPid();
+    appMapping->secState().clear();
+    pc::CGroupControl().setFreeze(false, appMapping->getApp());
+    appMapping->setQuarantine(false);
+    appMapping->setSai(0.0f);
+    applyState(appMapping, SecState::OBSERVE);
+    log4cpp::Category::getRoot().info("SECURITYAWAREPOLICY PID %ld cleared (thawed + reset)",
+                                      (long)pid);
 }
 
 }   // namespace rp
