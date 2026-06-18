@@ -98,6 +98,14 @@ std::string CGroupControl::getLine(const char *controllerName, const char *fileN
     return util::getLine(fileName, cgroupPath);
 }
 
+void CGroupControl::setFreeze(bool freeze, std::shared_ptr<rmcommon::App> app) const
+{
+    // cgroup.freeze lives directly in the app's cgroup directory, not under
+    // a controller, so no controller activation is needed.
+    string cgroupPath = getCgroupAppDir(app);
+    util::writeValue("cgroup.freeze", freeze ? string("1") : string("0"), cgroupPath);
+}
+
 std::vector<string> CGroupControl::getContent(const char *controllerName, const char *fileName, std::shared_ptr<rmcommon::App> app) const
 {
     // 1 - Find cgroup path

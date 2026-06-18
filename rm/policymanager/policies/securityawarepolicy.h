@@ -2,6 +2,7 @@
 #define SECURITYAWAREPOLICY_H
 
 #include "ibasepolicy.h"
+#include "secstate.h"
 
 namespace rp {
 
@@ -10,6 +11,15 @@ class SecurityAwarePolicy : public IBasePolicy {
     PlatformDescription platformDescription_;
     rmcommon::PlatformLoad lastPlatformLoad_;
     std::vector<int> appsOnPu_;
+    PolicyThresholds thresholds_;
+
+    /*! Threshold offset added per security level (gentler containment for
+        higher levels; availability-first). */
+    float tolOffset(rmcommon::App::SecurityLevel level) const;
+    /*! THROTTLE cpu.max fraction per security level. */
+    float stepFactor(rmcommon::App::SecurityLevel level) const;
+    /*! Applies the cgroup actions for a containment state (idempotent). */
+    void applyState(AppMappingPtr appMapping, SecState state);
 
 public:
     SecurityAwarePolicy(const AppMappingSet &apps, PlatformDescription pd);
@@ -25,6 +35,9 @@ public:
     virtual void securityAlert(AppMappingPtr appMapping, float sai,
                                const sec::SecurityFactors &factors,
                                const std::string &labels) override;
+
+    /*! Operator action (via HTTP /clear): thaw + reset a quarantined app. */
+    void clearApp(AppMappingPtr appMapping);
 };
 
 }   // namespace rp
