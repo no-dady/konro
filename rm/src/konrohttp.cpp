@@ -5,6 +5,7 @@
 #include "../../lib/json/json.hpp"
 #include "feedbackrequestevent.h"
 #include "addrequestevent.h"
+#include "clearevent.h"
 #include "app.h"
 
 #ifdef TIMING
@@ -125,6 +126,33 @@ struct KonroHttp::KonroHttpImpl {
         bus_.publish(event);
     }
 
+    /*!
+     * Extracts the pid from the JSON and publishes a ClearEvent (operator
+     * action to thaw + reset a quarantined app).
+     */
+    void sendClearEvent(const std::string &data) {
+        using namespace nlohmann;
+        basic_json<> j = json::parse(data);
+        if (!j.contains("pid")) {
+            cat_.error("KONROHTTP missing pid in clear message");
+            return;
+        }
+        pid_t pid = j["pid"];
+        cat_.info("KONROHTTP publishing ClearEvent for pid %ld", static_cast<long>(pid));
+        bus_.publish(new rmcommon::ClearEvent(pid));
+    }
+
+    void handleClearPost(const httplib::Request &req, httplib::Response &res, const httplib::ContentReader &content_reader){
+        cat_.info("KONROHTTP CLEAR POST received");
+        std::string body;
+        content_reader([&](const char *data, size_t data_length) {
+                body.append(data, data_length);
+                return true;
+            });
+        res.set_content("You have sent a CLEAR POST '" + body + "'\r\n", "text/plain");
+        sendClearEvent(body);
+    }
+
     void handleGet(const httplib::Request &req, httplib::Response &res) {
         cat_.info("HTTP GET received");
         res.status = 200;
@@ -201,6 +229,11 @@ void KonroHttp::run()
     /* Communication with integrated applications */
     pimpl_->srv.Post("/feedback", [this](const httplib::Request &req, httplib::Response &res, const httplib::ContentReader &content_reader) {
         this->pimpl_->handleFeedbackPost(req, res, content_reader);
+    });
+
+    /* Operator action: thaw + reset a quarantined application */
+    pimpl_->srv.Post("/clear", [this](const httplib::Request &req, httplib::Response &res, const httplib::ContentReader &content_reader) {
+        this->pimpl_->handleClearPost(req, res, content_reader);
     });
 
     cat_.info("KONROHTTP server starting");

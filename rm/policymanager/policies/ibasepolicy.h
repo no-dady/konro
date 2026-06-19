@@ -57,6 +57,10 @@ public:
                                const std::string &labels) {
         // Default empty implementation for backward compatibility
     }
+
+    virtual void clearApp(AppMappingPtr appMapping) {
+        // Default empty implementation; security policies override this
+    }
 };
 
 }   // namespace rp

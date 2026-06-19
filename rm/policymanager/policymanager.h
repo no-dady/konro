@@ -10,6 +10,7 @@
 #include "monitorevent.h"
 #include "feedbackevent.h"
 #include "securityevent.h"
+#include "clearevent.h"
 #include "appmapping.h"
 #include "policies/ibasepolicy.h"
 #include "platformdescription.h"
@@ -86,6 +87,7 @@ private:
      */
     void processFeedbackEvent(std::shared_ptr<const rmcommon::FeedbackEvent> event);
     void processSecurityEvent(std::shared_ptr<const rmcommon::SecurityEvent> event);
+    void processClearEvent(std::shared_ptr<const rmcommon::ClearEvent> event);
 
     /* for debugging */
     void dumpApps() const;

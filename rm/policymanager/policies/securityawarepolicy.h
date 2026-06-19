@@ -37,7 +37,7 @@ public:
                                const std::string &labels) override;
 
     /*! Operator action (via HTTP /clear): thaw + reset a quarantined app. */
-    void clearApp(AppMappingPtr appMapping);
+    virtual void clearApp(AppMappingPtr appMapping) override;
 };
 
 }   // namespace rp

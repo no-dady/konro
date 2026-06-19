@@ -10,6 +10,7 @@
 #include <iostream>
 #include <sstream>
 #include <thread>
+#include <algorithm>
 
 using namespace std;
 
@@ -81,6 +82,7 @@ void PolicyManager::subscribeToEvents()
     bus_.subscribe<PolicyManager, FeedbackEvent, BaseEvent>(this, &PolicyManager::addEvent);
     bus_.subscribe<PolicyManager, MonitorEvent, BaseEvent>(this, &PolicyManager::addEvent);
     bus_.subscribe<PolicyManager, SecurityEvent, BaseEvent>(this, &PolicyManager::addEvent);
+    bus_.subscribe<PolicyManager, ClearEvent, BaseEvent>(this, &PolicyManager::addEvent);
 }
 
 bool PolicyManager::processEvent(std::shared_ptr<const rmcommon::BaseEvent> event)
@@ -104,6 +106,8 @@ bool PolicyManager::processEvent(std::shared_ptr<const rmcommon::BaseEvent> even
         processFeedbackEvent(static_pointer_cast<const FeedbackEvent>(event));
     } else if (const SecurityEvent *e = dynamic_cast<const SecurityEvent *>(event.get())) {
         processSecurityEvent(static_pointer_cast<const SecurityEvent>(event));
+    } else if (const ClearEvent *e = dynamic_cast<const ClearEvent *>(event.get())) {
+        processClearEvent(static_pointer_cast<const ClearEvent>(event));
     }
     return true;        // continue processing
 }
@@ -178,6 +182,19 @@ void PolicyManager::processSecurityEvent(std::shared_ptr<const rmcommon::Securit
     } else {
         cat_.error("POLICYMANAGER security event: AppMapping not found for pid %d",
                    event->getApp()->getPid());
+    }
+}
+
+void PolicyManager::processClearEvent(std::shared_ptr<const rmcommon::ClearEvent> event)
+{
+    pid_t pid = event->getPid();
+    cat_.info("POLICYMANAGER clear event received for pid %d", pid);
+    auto it = find_if(begin(apps_), end(apps_),
+                      [pid](const AppMappingPtr &am) { return am->getPid() == pid; });
+    if (it != end(apps_)) {
+        policy_->clearApp(*it);
+    } else {
+        cat_.error("POLICYMANAGER clear event: AppMapping not found for pid %d", pid);
     }
 }
 
