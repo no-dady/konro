@@ -21,6 +21,10 @@ class KonroManager {
     bool changeContainerCgroup_;
     bool changeKubernetesCgroup_;
     int cfgSecurityPeriod_;
+    // SAI weights + EWMA alpha + publish threshold
+    float cfgWFanout_, cfgWHalfOpen_, cfgWForkRate_, cfgWNewExec_, cfgWCpuBurst_;
+    float cfgEwmaAlpha_;
+    float cfgPublishThreshold_;
 
     std::string defaultConfigFilePath();
     void setupLogging();

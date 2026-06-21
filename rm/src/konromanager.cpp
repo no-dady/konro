@@ -117,6 +117,13 @@ void KonroManager::loadConfiguration(std::string configFile)
     changeContainerCgroup_ = configRead(config, "container", "changecontainercgroup", 1);
     changeKubernetesCgroup_ = configRead(config, "kubernetes", "changekubernetescgroup", 1);
     cfgSecurityPeriod_ = configRead(config, "securitymonitor", "securityperiod", 10);
+    cfgWFanout_   = configRead(config, "securitymonitor", "weight_fanout", 0.30f);
+    cfgWHalfOpen_ = configRead(config, "securitymonitor", "weight_halfopen", 0.25f);
+    cfgWForkRate_ = configRead(config, "securitymonitor", "weight_forkrate", 0.15f);
+    cfgWNewExec_  = configRead(config, "securitymonitor", "weight_newexec", 0.20f);
+    cfgWCpuBurst_ = configRead(config, "securitymonitor", "weight_cpuburst", 0.10f);
+    cfgEwmaAlpha_ = configRead(config, "securitymonitor", "ewma_alpha", 0.30f);
+    cfgPublishThreshold_ = configRead(config, "securitymonitor", "publish_threshold", 0.40f);
 
     cat_.info("MAIN configuration: policy = %s", cfgPolicyName_.c_str());
     cat_.info("MAIN configuration: security monitor period = %d", cfgSecurityPeriod_);
@@ -146,6 +153,13 @@ void KonroManager::run()
     pimpl_->policyTimer = new rp::PolicyTimer(pimpl_->eventBus, cfgTimerSeconds_);
     if (cfgSecurityPeriod_ > 0) {
         pimpl_->securityMonitor = new SecurityMonitor(pimpl_->eventBus, cfgSecurityPeriod_);
+        sec::SaiWeights w;
+        w.fanout = cfgWFanout_;
+        w.halfOpen = cfgWHalfOpen_;
+        w.forkRate = cfgWForkRate_;
+        w.newExec = cfgWNewExec_;
+        w.cpuBurst = cfgWCpuBurst_;
+        pimpl_->securityMonitor->setSaiConfig(w, cfgEwmaAlpha_, cfgPublishThreshold_);
     }
 
     pimpl_->platformDescription.logTopology();
