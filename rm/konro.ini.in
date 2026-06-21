@@ -1,0 +1,15 @@
+[policy]
+policy = SecurityAwarePolicy
+
+[securitymonitor]
+securityperiod = 10
+; composite SAI weights (any factor can be set to 0 to disable it)
+weight_fanout = 0.30
+weight_halfopen = 0.25
+weight_forkrate = 0.15
+weight_newexec = 0.20
+weight_cpuburst = 0.10
+; EWMA smoothing factor for the per-app baseline
+ewma_alpha = 0.30
+; publish a SecurityEvent when SAI reaches this value
+publish_threshold = 0.40

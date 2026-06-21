@@ -66,6 +66,14 @@ public:
     SecurityMonitor(rmcommon::EventBus &bus, int securityPeriod);
     ~SecurityMonitor();
 
+    /*! Override the default SAI weights / EWMA alpha / publish threshold
+        (from configuration). */
+    void setSaiConfig(const sec::SaiWeights &weights, float alpha, float publishThreshold) {
+        weights_ = weights;
+        alpha_ = alpha;
+        publishThreshold_ = publishThreshold;
+    }
+
     void processAddEvent(std::shared_ptr<const rmcommon::AddEvent> event);
     void processRemoveEvent(std::shared_ptr<const rmcommon::RemoveEvent> event);
 };
