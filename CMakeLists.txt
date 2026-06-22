@@ -9,6 +9,8 @@ project (konro)
 
 list (APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
 
+enable_testing()
+
 option(TIMING "Enable low level timing" OFF)
 
 if (NOT DEFINED CGROUPBASEDIR)
