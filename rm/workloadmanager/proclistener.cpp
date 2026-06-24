@@ -15,6 +15,16 @@
 #include <linux/connector.h>
 #include <linux/cn_proc.h>
 
+// Newer linux/cn_proc.h nests PROC_EVENT_* inside struct proc_event::what,
+// which scopes the names in C++. Provide global fallbacks when the flat
+// names are not visible so the connector parsing builds on both layouts.
+#ifndef PROC_EVENT_FORK
+#define PROC_EVENT_NONE 0x00000000
+#define PROC_EVENT_FORK 0x00000001
+#define PROC_EVENT_EXEC 0x00000002
+#define PROC_EVENT_EXIT 0x80000000
+#endif
+
 // fix missing gettid() function in glibc
 #if __GLIBC__ == 2 && __GLIBC_MINOR__ < 30
 #include <sys/syscall.h>
