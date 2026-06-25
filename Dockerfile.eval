@@ -1,0 +1,24 @@
+FROM debian:12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake g++ make pkg-config linux-libc-dev \
+    liblog4cpp5-dev libhwloc-dev libsensors-dev \
+    python3 procps iproute2 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . /src
+WORKDIR /src
+
+# peopledetect needs OpenCV (+CUDA), unrelated to this evaluation: drop it so
+# cmake configure does not require those deps in the container.
+RUN sed -i '/add_subdirectory *(peopledetect)/d' CMakeLists.txt
+
+RUN mkdir -p build && cd build && cmake .. && make -j"$(nproc)" konro \
+    && cp rm/konro /usr/local/bin/konro
+
+RUN cp /src/evaldocker/konro.ini /etc/konro.ini \
+    && cp /src/evaldocker/victim.py /victim.py \
+    && cp /src/evaldocker/run-exp.sh /run-exp.sh \
+    && chmod +x /run-exp.sh
+
+ENTRYPOINT ["/run-exp.sh"]
