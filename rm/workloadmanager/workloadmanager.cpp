@@ -168,6 +168,14 @@ void WorkloadManager::processForkEvent(std::shared_ptr<const rmcommon::ForkEvent
     if (isParentInKonro) {
         // Child app inherits type from parent
         rmcommon::App::AppType parentType = (*iter)->getAppType();
+        // A child of a container/kubernetes app is already part of that app's
+        // cgroup and is covered by the parent's management. Tracking it as a
+        // separate app would move it out of the container cgroup (breaking
+        // in-place management) and churns on short-lived processes, so skip it.
+        if (parentType == rmcommon::App::AppType::CONTAINER ||
+            parentType == rmcommon::App::AppType::KUBERNETES) {
+            return;
+        }
         shared_ptr<rmcommon::App> app = rmcommon::App::makeApp(ev->event_data.fork.child_pid, parentType);
         app->setName(getProcessNameByPid(app->getPid()));
         add(app);

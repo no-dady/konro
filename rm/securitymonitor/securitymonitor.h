@@ -53,7 +53,7 @@ class SecurityMonitor : public rmcommon::BaseThread {
     std::map<ino_t, pid_t> socketInodeToPid(const std::vector<pid_t> &pids);
     /*! Counts distinct remote destinations and SYN_SENT sockets among the
         connections whose inode belongs to the given set (from /proc/net/tcp{,6}). */
-    void countConnections(const std::set<ino_t> &inodes,
+    void countConnections(const std::set<ino_t> &inodes, pid_t netnsPid,
                           int &distinctDests, int &synSent, int &total);
     /*! Reads /proc/<pid>/comm (the executable name). */
     std::string getProcessComm(pid_t pid);
