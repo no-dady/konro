@@ -100,15 +100,20 @@ map<ino_t, pid_t> SecurityMonitor::socketInodeToPid(const vector<pid_t> &pids)
     return result;
 }
 
-void SecurityMonitor::countConnections(const set<ino_t> &inodes,
+void SecurityMonitor::countConnections(const set<ino_t> &inodes, pid_t netnsPid,
                                        int &distinctDests, int &synSent, int &total)
 {
     distinctDests = 0;
     synSent = 0;
     total = 0;
     set<string> dests;
-    const char *files[] = { "/proc/net/tcp", "/proc/net/tcp6" };
-    for (const char *file : files) {
+    // Read the connection table from the app's own network namespace
+    // (/proc/<pid>/net), so this works whether Konro runs inside the app's
+    // container or on the host managing a containerised app. Falls back to
+    // the caller's namespace when no pid is available.
+    string base = netnsPid > 0 ? ("/proc/" + to_string(netnsPid) + "/net/") : string("/proc/net/");
+    const string files[] = { base + "tcp", base + "tcp6" };
+    for (const string &file : files) {
         ifstream fs(file);
         if (!fs.is_open())
             continue;
@@ -170,7 +175,8 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
         inodes.insert(kv.first);
 
     int distinctDests = 0, synSent = 0, total = 0;
-    countConnections(inodes, distinctDests, synSent, total);
+    pid_t netnsPid = pids.empty() ? 0 : pids.front();
+    countConnections(inodes, netnsPid, distinctDests, synSent, total);
     float halfOpenRatio = total > 0 ? static_cast<float>(synSent) / total : 0.0f;
 
     sec::SecurityFactors f;
