@@ -87,6 +87,7 @@ void SecurityAwarePolicy::addApp(AppMappingPtr appMapping)
 
         appMapping->setPuVector({{static_cast<short>(pu), static_cast<short>(pu)}});
         ++appsOnPu_[pu];
+        assignedPu_[pid] = pu;          // remember for OBSERVE restore (FIX 1.3)
         appMapping->setCpuMax(rmcommon::NumericValue("max"));
         appMapping->setBaselinePids(appMapping->getCurrentPids());
 
@@ -107,6 +108,7 @@ void SecurityAwarePolicy::removeApp(AppMappingPtr appMapping)
         --appsOnPu_[pu];
         appsOnPu_[pu] = std::max(appsOnPu_[pu], 0);
     }
+    assignedPu_.erase(appMapping->getPid());
 }
 
 void SecurityAwarePolicy::timer()
@@ -159,13 +161,19 @@ void SecurityAwarePolicy::applyState(AppMappingPtr appMapping, SecState state)
     int numPUs = platformDescription_.getNumProcessingUnits();
 
     switch (state) {
-    case SecState::OBSERVE:
-        // restore full allocation (idempotent)
+    case SecState::OBSERVE: {
+        // restore full cpu allocation (idempotent) and the app's ORIGINAL
+        // assigned PU, not all cores: spreading the app across {0..numPUs-1}
+        // would destroy the per-app isolation addApp established.
         appMapping->setQuarantine(false);
         appMapping->setCpuMax(rmcommon::NumericValue("max"));
-        if (numPUs > 0)
-            appMapping->setPuVector({{0, static_cast<short>(numPUs - 1)}});
+        if (numPUs > 0) {
+            auto it = assignedPu_.find(pid);
+            int pu = (it != assignedPu_.end()) ? it->second : 0;
+            appMapping->setPuVector({{static_cast<short>(pu), static_cast<short>(pu)}});
+        }
         break;
+    }
     case SecState::THROTTLE: {
         int full = std::max(numPUs, 1) * 100;
         int band = std::max(static_cast<int>(full * stepFactor(level)), 10);
@@ -176,10 +184,17 @@ void SecurityAwarePolicy::applyState(AppMappingPtr appMapping, SecState state)
     case SecState::RESTRICT: {
         appMapping->setCpuMax(20);
         appMapping->setPuVector({{0, 0}});
-        int currentPids = appMapping->getCurrentPids();
-        appMapping->setMaxPids(currentPids > 0 ? currentPids : 2);
+        // Clamp pids.max to the CLEAN baseline captured at addApp, not the
+        // current task count: if the malware has already forked, getCurrentPids()
+        // would lock in the compromised count and defeat the containment.
+        int baselinePids = appMapping->getBaselinePids();
+        int pidsCap = baselinePids > 0 ? baselinePids
+                                       : (appMapping->getCurrentPids() > 0
+                                              ? appMapping->getCurrentPids()
+                                              : 2);
+        appMapping->setMaxPids(pidsCap);
         cat.warn("SECURITYAWAREPOLICY RESTRICT PID %ld cpu.max=20%% PU=0 pids=%d",
-                 (long)pid, currentPids);
+                 (long)pid, pidsCap);
         break;
     }
     case SecState::QUARANTINE:

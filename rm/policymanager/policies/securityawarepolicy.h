@@ -3,6 +3,8 @@
 
 #include "ibasepolicy.h"
 #include "secstate.h"
+#include <map>
+#include <sys/types.h>
 
 namespace rp {
 
@@ -12,6 +14,9 @@ class SecurityAwarePolicy : public IBasePolicy {
     rmcommon::PlatformLoad lastPlatformLoad_;
     std::vector<int> appsOnPu_;
     PolicyThresholds thresholds_;
+    /*! PU each app was originally pinned to in addApp; used to restore
+        isolation when recovering to OBSERVE. */
+    std::map<pid_t, int> assignedPu_;
 
     /*! Threshold offset added per security level (gentler containment for
         higher levels; availability-first). */
