@@ -34,6 +34,26 @@ static int test_hysteresis_dwell_before_recover() {
     return TEST_OK;
 }
 
+static int test_full_recovery_to_observe() {
+    // Regression guard for FIX 1.1 (the recovery deadlock). The state machine
+    // only advances on a published SecurityEvent, and the fixed monitor now
+    // publishes EVERY period (including sai below the publish gate). This test
+    // documents that, given those low-SAI samples, an app driven to THROTTLE
+    // recovers ALL THE WAY back to OBSERVE — stepping down one level per dwellN
+    // periods. If the monitor ever re-adds the publish gate, these low samples
+    // would not reach step() at runtime and recovery would silently stall.
+    PolicyThresholds th;                 // t1=.4 t2=.6 t3=.8 dwellN=3
+    StateTracker s;
+    if (s.step(0.50f, th, 0.0f) != SecState::THROTTLE) return TEST_FAILED;
+    // sustained low SAI: dwellN-1 periods stay in THROTTLE, then step down
+    if (s.step(0.0f, th, 0.0f) != SecState::THROTTLE) return TEST_FAILED; // 1
+    if (s.step(0.0f, th, 0.0f) != SecState::THROTTLE) return TEST_FAILED; // 2
+    if (s.step(0.0f, th, 0.0f) != SecState::OBSERVE)  return TEST_FAILED; // 3 -> OBSERVE
+    // and it stays at OBSERVE afterwards
+    if (s.step(0.0f, th, 0.0f) != SecState::OBSERVE)  return TEST_FAILED;
+    return TEST_OK;
+}
+
 static int test_quarantine_is_sticky() {
     PolicyThresholds th;
     StateTracker s;
@@ -51,6 +71,7 @@ int main() {
     rc |= test_escalation();
     rc |= test_tolerance_offset_raises_thresholds();
     rc |= test_hysteresis_dwell_before_recover();
+    rc |= test_full_recovery_to_observe();
     rc |= test_quarantine_is_sticky();
     std::cout << (rc == TEST_OK ? "ALL PASS" : "FAIL") << std::endl;
     return rc;

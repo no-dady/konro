@@ -147,7 +147,9 @@ void KonroManager::run()
     pimpl_->cgc.setChangeKubernetesCgroup(changeKubernetesCgroup_);
     pimpl_->http = new http::KonroHttp(pimpl_->eventBus, httpListenHost_.c_str(), httpListenPort_);
     pimpl_->policyManager = new rp::PolicyManager(pimpl_->eventBus, pimpl_->platformDescription, policy);
-    pimpl_->workloadManager = new wm::WorkloadManager(pimpl_->eventBus, pimpl_->cgc);
+    pimpl_->workloadManager = new wm::WorkloadManager(pimpl_->eventBus, pimpl_->cgc,
+                                                      changeContainerCgroup_,
+                                                      changeKubernetesCgroup_);
     pimpl_->procListener = new wm::ProcListener(pimpl_->eventBus);
     pimpl_->platformMonitor = new PlatformMonitor(pimpl_->eventBus, pimpl_->platformDescription, cfgMonitorPeriod_);
     pimpl_->policyTimer = new rp::PolicyTimer(pimpl_->eventBus, cfgTimerSeconds_);

@@ -223,15 +223,25 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
 
     float sai = sec::computeSai(f, weights_);
 
+    // Publish a SecurityEvent EVERY period for EVERY managed app, regardless
+    // of SAI. The policy's StateTracker owns all threshold logic (escalate
+    // immediately, recover only after dwellN consecutive low-SAI periods), and
+    // step() only runs on a published event. If we gated publishing on
+    // publishThreshold_ (== t1), the low-SAI samples needed to recover from
+    // THROTTLE back to OBSERVE would be silently dropped and the app would stay
+    // clamped forever. So the gate is kept ONLY to suppress the verbose log
+    // line on benign samples; the event itself always fires. A low-SAI event
+    // with empty labels is correct and cheap (the period is measured in
+    // seconds). See testsecuritypolicy::test_full_recovery_to_observe.
     if (sai >= publishThreshold_) {
         if (f.fanout > 0.5f) labels << "fanout ";
         if (f.halfOpen > 0.5f) labels << "scan ";
         if (f.cpuBurst > 0.5f) labels << "cpu ";
         cat_.info("SECURITYMONITOR publishing SecurityEvent for pid %ld, sai=%.3f, dests=%d synSent=%d procs=%zu",
                   (long)pid, sai, distinctDests, synSent, pids.size());
-        rmcommon::SecurityEvent *event = new rmcommon::SecurityEvent(app, sai, f, labels.str());
-        bus_.publish(event);
     }
+    rmcommon::SecurityEvent *event = new rmcommon::SecurityEvent(app, sai, f, labels.str());
+    bus_.publish(event);
 }
 
 void SecurityMonitor::run()

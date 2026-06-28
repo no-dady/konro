@@ -31,6 +31,11 @@ class WorkloadManager : public rmcommon::BaseEventReceiver {
     rmcommon::EventBus &bus_;
     pc::IPlatformControl &platformControl_;
     log4cpp::Category &cat_;
+    /*! When false (in-place mode, changecontainercgroup=0) a CONTAINER app's
+        fork children are left in the container cgroup and not tracked. */
+    bool changeContainerCgroup_;
+    /*! As above for KUBERNETES apps (changekubernetescgroup=0). */
+    bool changeKubernetesCgroup_;
 
     /*! Comparison function for the set */
     using AppComparator = bool (*)(const std::shared_ptr<rmcommon::App> &lhs,
@@ -127,7 +132,9 @@ class WorkloadManager : public rmcommon::BaseEventReceiver {
     void subscribeToEvents();
 
 public:
-    WorkloadManager(rmcommon::EventBus &bus, pc::IPlatformControl &pc);
+    WorkloadManager(rmcommon::EventBus &bus, pc::IPlatformControl &pc,
+                    bool changeContainerCgroup = true,
+                    bool changeKubernetesCgroup = true);
 
     virtual bool processEvent(std::shared_ptr<const rmcommon::BaseEvent> event) override;
 };

@@ -46,11 +46,15 @@ static bool appComp(const shared_ptr<rmcommon::App> &lhs, const shared_ptr<rmcom
     return lhs->getPid() < rhs->getPid();
 }
 
-WorkloadManager::WorkloadManager(rmcommon::EventBus &bus, pc::IPlatformControl &pc) :
+WorkloadManager::WorkloadManager(rmcommon::EventBus &bus, pc::IPlatformControl &pc,
+                                 bool changeContainerCgroup,
+                                 bool changeKubernetesCgroup) :
     rmcommon::BaseEventReceiver("WORKLOADMANAGER"),
     bus_(bus),
     platformControl_(pc),
     cat_(log4cpp::Category::getRoot()),
+    changeContainerCgroup_(changeContainerCgroup),
+    changeKubernetesCgroup_(changeKubernetesCgroup),
     apps_(appComp)
 {
     subscribeToEvents();
@@ -168,12 +172,17 @@ void WorkloadManager::processForkEvent(std::shared_ptr<const rmcommon::ForkEvent
     if (isParentInKonro) {
         // Child app inherits type from parent
         rmcommon::App::AppType parentType = (*iter)->getAppType();
-        // A child of a container/kubernetes app is already part of that app's
-        // cgroup and is covered by the parent's management. Tracking it as a
-        // separate app would move it out of the container cgroup (breaking
-        // in-place management) and churns on short-lived processes, so skip it.
-        if (parentType == rmcommon::App::AppType::CONTAINER ||
-            parentType == rmcommon::App::AppType::KUBERNETES) {
+        // In in-place management mode a child of a container/kubernetes app is
+        // already part of that app's cgroup and is covered by the parent's
+        // management; tracking it separately would move it out of the container
+        // cgroup (breaking in-place management). Skip it ONLY in that mode. In
+        // default mode (changecontainercgroup=1 / changekubernetescgroup=1)
+        // baseline Konro deliberately tracks + re-cgroups these children, so we
+        // must fall through to the normal add path.
+        if (parentType == rmcommon::App::AppType::CONTAINER && !changeContainerCgroup_) {
+            return;
+        }
+        if (parentType == rmcommon::App::AppType::KUBERNETES && !changeKubernetesCgroup_) {
             return;
         }
         shared_ptr<rmcommon::App> app = rmcommon::App::makeApp(ev->event_data.fork.child_pid, parentType);
