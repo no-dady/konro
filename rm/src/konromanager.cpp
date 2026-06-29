@@ -122,6 +122,8 @@ void KonroManager::loadConfiguration(std::string configFile)
     cfgWForkRate_ = configRead(config, "securitymonitor", "weight_forkrate", 0.15f);
     cfgWNewExec_  = configRead(config, "securitymonitor", "weight_newexec", 0.20f);
     cfgWCpuBurst_ = configRead(config, "securitymonitor", "weight_cpuburst", 0.10f);
+    cfgWEgress_   = configRead(config, "securitymonitor", "weight_egress", 0.15f);
+    cfgWMem_      = configRead(config, "securitymonitor", "weight_mem", 0.10f);
     cfgEwmaAlpha_ = configRead(config, "securitymonitor", "ewma_alpha", 0.30f);
     cfgPublishThreshold_ = configRead(config, "securitymonitor", "publish_threshold", 0.40f);
 
@@ -161,6 +163,8 @@ void KonroManager::run()
         w.forkRate = cfgWForkRate_;
         w.newExec = cfgWNewExec_;
         w.cpuBurst = cfgWCpuBurst_;
+        w.egress = cfgWEgress_;
+        w.memGrowth = cfgWMem_;
         pimpl_->securityMonitor->setSaiConfig(w, cfgEwmaAlpha_, cfgPublishThreshold_);
     }
 

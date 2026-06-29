@@ -33,7 +33,9 @@ float computeSai(const SecurityFactors &f, const SaiWeights &w) {
                    w.halfOpen * f.halfOpen +
                    w.forkRate * f.forkRate +
                    w.newExec * f.newExec +
-                   w.cpuBurst * f.cpuBurst);
+                   w.cpuBurst * f.cpuBurst +
+                   w.egress * f.egress +
+                   w.memGrowth * f.memGrowth);
 }
 
 } // namespace sec

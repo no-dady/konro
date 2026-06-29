@@ -30,9 +30,15 @@ class SecurityMonitor : public rmcommon::BaseThread {
         sec::Ewma halfOpen;
         sec::Ewma forkRate;
         sec::Ewma cpuBurst;
+        sec::Ewma egress;
+        sec::Ewma memGrowth;
         std::set<std::string> knownExecs;
         uint64_t lastCpuUsec = 0;
         bool cpuInit = false;
+        uint64_t lastTxBytes = 0;
+        bool egressInit = false;
+        uint64_t lastMemCurrent = 0;
+        bool memInit = false;
     };
 
     log4cpp::Category &cat_;
@@ -59,6 +65,11 @@ class SecurityMonitor : public rmcommon::BaseThread {
     std::string getProcessComm(pid_t pid);
     /*! Reads cumulative cgroup cpu usage in microseconds (cpu.stat usage_usec). */
     uint64_t getCpuUsec(std::shared_ptr<rmcommon::App> app);
+    /*! Sums transmitted bytes across all interfaces (excluding lo) from the
+        app's network namespace (/proc/<netnsPid>/net/dev). Returns 0 on error. */
+    uint64_t getTxBytes(pid_t netnsPid);
+    /*! Reads the cgroup current memory usage in bytes (memory.current). */
+    uint64_t getMemCurrent(std::shared_ptr<rmcommon::App> app);
 
     virtual void run() override;
 

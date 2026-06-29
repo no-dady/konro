@@ -9,17 +9,21 @@ namespace sec {
  * factors (newExec) are 0 or 1.
  */
 struct SecurityFactors {
-    float fanout   = 0.0f;      // A1 distinct outbound destinations
-    float halfOpen = 0.0f;      // A2 SYN_SENT ratio
-    float forkRate = 0.0f;      // B1 process count
-    float newExec  = 0.0f;      // B2 unexpected binary (discrete 0/1)
-    float cpuBurst = 0.0f;      // C1 cpu usage delta
+    float fanout    = 0.0f;     // A1 distinct outbound destinations
+    float halfOpen  = 0.0f;     // A2 SYN_SENT ratio
+    float forkRate  = 0.0f;     // B1 process count
+    float newExec   = 0.0f;     // B2 unexpected binary (discrete 0/1)
+    float cpuBurst  = 0.0f;     // C1 cpu usage delta
+    float egress    = 0.0f;     // A3 outbound byte rate (network flood)
+    float memGrowth = 0.0f;     // D1 memory.current growth rate (exhaustion)
 };
 
-/*! Weights for the composite SAI; configurable, any factor can be zeroed. */
+/*! Weights for the composite SAI; configurable, any factor can be zeroed.
+    Weights need not sum to 1: computeSai clamps the weighted sum to [0,1]. */
 struct SaiWeights {
     float fanout = 0.30f, halfOpen = 0.25f, forkRate = 0.15f,
-          newExec = 0.20f, cpuBurst = 0.10f;
+          newExec = 0.20f, cpuBurst = 0.10f,
+          egress = 0.15f, memGrowth = 0.10f;
 };
 
 /*!

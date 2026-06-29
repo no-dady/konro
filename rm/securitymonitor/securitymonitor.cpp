@@ -163,6 +163,62 @@ uint64_t SecurityMonitor::getCpuUsec(shared_ptr<rmcommon::App> app)
     return 0;
 }
 
+uint64_t SecurityMonitor::getTxBytes(pid_t netnsPid)
+{
+    // Read transmitted bytes from the app's own network namespace, mirroring
+    // countConnections (/proc/<pid>/net). Falls back to the caller's namespace
+    // when no pid is available.
+    string path = netnsPid > 0 ? ("/proc/" + to_string(netnsPid) + "/net/dev")
+                                : string("/proc/net/dev");
+    ifstream fs(path);
+    if (!fs.is_open())
+        return 0;
+    uint64_t txTotal = 0;
+    string line;
+    // /proc/.../net/dev has two header lines before the per-interface rows.
+    getline(fs, line);
+    getline(fs, line);
+    while (getline(fs, line)) {
+        // Format: "iface: rxbytes rxpackets ... txbytes ..."
+        // After the "iface:" label the columns are 8 rx fields followed by the
+        // tx fields, so tx bytes is the 9th token after the label.
+        size_t colon = line.find(':');
+        if (colon == string::npos)
+            continue;
+        string iface = line.substr(0, colon);
+        // trim leading/trailing whitespace from the interface name
+        size_t b = iface.find_first_not_of(" \t");
+        size_t e = iface.find_last_not_of(" \t");
+        if (b == string::npos)
+            continue;
+        iface = iface.substr(b, e - b + 1);
+        if (iface == "lo")
+            continue;
+        istringstream is(line.substr(colon + 1));
+        uint64_t field = 0;
+        bool ok = true;
+        for (int i = 0; i < 9; ++i) {
+            if (!(is >> field)) { ok = false; break; }
+        }
+        if (ok)
+            txTotal += field;       // 9th field == tx bytes
+    }
+    return txTotal;
+}
+
+uint64_t SecurityMonitor::getMemCurrent(shared_ptr<rmcommon::App> app)
+{
+    try {
+        // memory.current is a single bare integer (bytes); getLine returns the
+        // raw value, parsed as 64-bit to avoid the truncation in getValueAsInt.
+        string value = pc::CGroupControl().getLine("memory", "memory.current", app);
+        return strtoull(value.c_str(), nullptr, 10);
+    } catch (...) {
+        // memory.current may be unavailable; treat as no sample
+    }
+    return 0;
+}
+
 void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
 {
     pid_t pid = app->getPid();
@@ -187,6 +243,19 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
     f.halfOpen = base.halfOpen.deviation(halfOpenRatio);
     base.fanout.update(static_cast<float>(distinctDests), alpha_);
     base.halfOpen.update(halfOpenRatio, alpha_);
+
+    // A3 egress byte rate (network flood). Reuse the netnsPid already computed
+    // for countConnections; read tx bytes from the app's net/dev.
+    uint64_t txNow = getTxBytes(netnsPid);
+    if (base.egressInit && securityPeriod_ > 0) {
+        float rate = (txNow >= base.lastTxBytes)
+                     ? static_cast<float>(txNow - base.lastTxBytes) / securityPeriod_
+                     : 0.0f;        // counter wrap / interface reset -> no spike
+        f.egress = base.egress.deviation(rate);
+        base.egress.update(rate, alpha_);
+    }
+    base.lastTxBytes = txNow;
+    base.egressInit = true;
 
     // B1 process count
     float procCount = static_cast<float>(pids.size());
@@ -221,6 +290,18 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
     base.lastCpuUsec = cpuNow;
     base.cpuInit = true;
 
+    // D1 memory growth (memory exhaustion): rate of memory.current increase
+    uint64_t memNow = getMemCurrent(app);
+    if (base.memInit && securityPeriod_ > 0) {
+        float rate = (memNow >= base.lastMemCurrent)
+                     ? static_cast<float>(memNow - base.lastMemCurrent) / securityPeriod_
+                     : 0.0f;        // freed memory is not an anomaly
+        f.memGrowth = base.memGrowth.deviation(rate);
+        base.memGrowth.update(rate, alpha_);
+    }
+    base.lastMemCurrent = memNow;
+    base.memInit = true;
+
     float sai = sec::computeSai(f, weights_);
 
     // Publish a SecurityEvent EVERY period for EVERY managed app, regardless
@@ -237,6 +318,8 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
         if (f.fanout > 0.5f) labels << "fanout ";
         if (f.halfOpen > 0.5f) labels << "scan ";
         if (f.cpuBurst > 0.5f) labels << "cpu ";
+        if (f.egress > 0.5f) labels << "egress ";
+        if (f.memGrowth > 0.5f) labels << "mem ";
         cat_.info("SECURITYMONITOR publishing SecurityEvent for pid %ld, sai=%.3f, dests=%d synSent=%d procs=%zu",
                   (long)pid, sai, distinctDests, synSent, pids.size());
     }
