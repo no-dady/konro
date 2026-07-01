@@ -198,6 +198,12 @@ void PolicyManager::processClearEvent(std::shared_ptr<const rmcommon::ClearEvent
     }
 }
 
+void PolicyManager::setPolicyThresholds(const rp::PolicyThresholds &th)
+{
+    if (policy_)
+        policy_->setThresholds(th);
+}
+
 void PolicyManager::dumpApps() const
 {
     std::ostringstream os;

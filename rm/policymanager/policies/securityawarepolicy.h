@@ -43,6 +43,10 @@ public:
 
     /*! Operator action (via HTTP /clear): thaw + reset a quarantined app. */
     virtual void clearApp(AppMappingPtr appMapping) override;
+
+    /*! Update escalation thresholds post-construction (called from KonroManager
+     *  after reading the [securitypolicy] config section). */
+    virtual void setThresholds(const PolicyThresholds &th) override;
 };
 
 }   // namespace rp

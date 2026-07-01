@@ -26,6 +26,9 @@ class KonroManager {
     float cfgWEgress_, cfgWMem_;
     float cfgEwmaAlpha_;
     float cfgPublishThreshold_;
+    // SAI escalation thresholds for the containment state machine
+    float cfgT1_, cfgT2_, cfgT3_;
+    int cfgDwell_;
 
     std::string defaultConfigFilePath();
     void setupLogging();

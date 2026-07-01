@@ -16,3 +16,12 @@ weight_mem = 0.10
 ewma_alpha = 0.30
 ; publish a SecurityEvent when SAI reaches this value
 publish_threshold = 0.40
+
+[securitypolicy]
+; SAI escalation thresholds for the containment state machine
+; OBSERVE -> THROTTLE (t1) -> RESTRICT (t2) -> QUARANTINE (t3)
+threshold_t1 = 0.40
+threshold_t2 = 0.60
+threshold_t3 = 0.80
+; consecutive low-SAI periods required before stepping down one level
+dwell_periods = 3
