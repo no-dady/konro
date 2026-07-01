@@ -66,6 +66,20 @@ static int test_quarantine_is_sticky() {
     return TEST_OK;
 }
 
+/* Documents that thresholds are data-driven: custom cut-offs are honoured. */
+static int test_custom_thresholds() {
+    PolicyThresholds th;
+    th.t1 = 0.5f; th.t2 = 0.7f; th.t3 = 0.9f; th.dwellN = 2;
+    StateTracker s;
+    // 0.45 is below t1=0.50 -> stays OBSERVE
+    if (s.step(0.45f, th, 0.0f) != SecState::OBSERVE)    return TEST_FAILED;
+    // 0.55 is above t1 but below t2 -> THROTTLE
+    if (s.step(0.55f, th, 0.0f) != SecState::THROTTLE)   return TEST_FAILED;
+    // 0.95 is above t3 -> QUARANTINE (escalation is immediate)
+    if (s.step(0.95f, th, 0.0f) != SecState::QUARANTINE) return TEST_FAILED;
+    return TEST_OK;
+}
+
 int main() {
     int rc = 0;
     rc |= test_escalation();
@@ -73,6 +87,7 @@ int main() {
     rc |= test_hysteresis_dwell_before_recover();
     rc |= test_full_recovery_to_observe();
     rc |= test_quarantine_is_sticky();
+    rc |= test_custom_thresholds();
     std::cout << (rc == TEST_OK ? "ALL PASS" : "FAIL") << std::endl;
     return rc;
 }

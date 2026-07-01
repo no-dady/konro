@@ -5,6 +5,7 @@
 #include "constants.h"
 #include "proclistener.h"
 #include "policymanager.h"
+#include "policies/secstate.h"
 #include "workloadmanager.h"
 #include "platformmonitor.h"
 #include "proclistener.h"
@@ -126,6 +127,10 @@ void KonroManager::loadConfiguration(std::string configFile)
     cfgWMem_      = configRead(config, "securitymonitor", "weight_mem", 0.10f);
     cfgEwmaAlpha_ = configRead(config, "securitymonitor", "ewma_alpha", 0.30f);
     cfgPublishThreshold_ = configRead(config, "securitymonitor", "publish_threshold", 0.40f);
+    cfgT1_    = configRead(config, "securitypolicy", "threshold_t1", 0.40f);
+    cfgT2_    = configRead(config, "securitypolicy", "threshold_t2", 0.60f);
+    cfgT3_    = configRead(config, "securitypolicy", "threshold_t3", 0.80f);
+    cfgDwell_ = configRead(config, "securitypolicy", "dwell_periods", 3);
 
     cat_.info("MAIN configuration: policy = %s", cfgPolicyName_.c_str());
     cat_.info("MAIN configuration: security monitor period = %d", cfgSecurityPeriod_);
@@ -149,6 +154,13 @@ void KonroManager::run()
     pimpl_->cgc.setChangeKubernetesCgroup(changeKubernetesCgroup_);
     pimpl_->http = new http::KonroHttp(pimpl_->eventBus, httpListenHost_.c_str(), httpListenPort_);
     pimpl_->policyManager = new rp::PolicyManager(pimpl_->eventBus, pimpl_->platformDescription, policy);
+    {
+        rp::PolicyThresholds th;
+        th.t1 = cfgT1_; th.t2 = cfgT2_; th.t3 = cfgT3_; th.dwellN = cfgDwell_;
+        pimpl_->policyManager->setPolicyThresholds(th);
+        cat_.info("MAIN configuration: securitypolicy t1=%.2f t2=%.2f t3=%.2f dwell=%d",
+                  th.t1, th.t2, th.t3, th.dwellN);
+    }
     pimpl_->workloadManager = new wm::WorkloadManager(pimpl_->eventBus, pimpl_->cgc,
                                                       changeContainerCgroup_,
                                                       changeKubernetesCgroup_);

@@ -104,6 +104,12 @@ public:
      * If no policy exists with that name, NoPolicy is returned.
      */
     static Policy getPolicyByName(const std::string &policyName);
+
+    /*!
+     * Forward SAI escalation thresholds to the active policy.
+     * No-op for non-security policies.
+     */
+    void setPolicyThresholds(const rp::PolicyThresholds &th);
 };
 
 }   // namespace rp

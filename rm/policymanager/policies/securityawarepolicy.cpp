@@ -228,6 +228,14 @@ void SecurityAwarePolicy::securityAlert(AppMappingPtr appMapping, float sai,
     }
 }
 
+void SecurityAwarePolicy::setThresholds(const PolicyThresholds &th)
+{
+    thresholds_ = th;
+    log4cpp::Category::getRoot().info(
+        "SECURITYAWAREPOLICY thresholds updated: t1=%.2f t2=%.2f t3=%.2f dwellN=%d",
+        th.t1, th.t2, th.t3, th.dwellN);
+}
+
 void SecurityAwarePolicy::clearApp(AppMappingPtr appMapping)
 {
     pid_t pid = appMapping->getPid();

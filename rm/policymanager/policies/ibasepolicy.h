@@ -6,6 +6,7 @@
 #include "monitorevent.h"
 #include "feedbackevent.h"
 #include "sai.h"
+#include "secstate.h"
 #include <memory>
 #include <string>
 
@@ -60,6 +61,12 @@ public:
 
     virtual void clearApp(AppMappingPtr appMapping) {
         // Default empty implementation; security policies override this
+    }
+
+    /*! Configure the SAI escalation thresholds used by the containment
+     *  state machine.  Default no-op; security policies override this. */
+    virtual void setThresholds(const PolicyThresholds &th) {
+        (void)th;  // no-op for non-security policies
     }
 };
 
