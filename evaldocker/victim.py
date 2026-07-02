@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Emulated IoT node that becomes Mirai-like after a baseline period.
+"""Emulated IoT node whose behaviour over time is set by $SCENARIO:
 
-Phases (by elapsed time since start):
-  0-25s   normal   : idle sensor, no scanning
-  25-40s  scanning : many half-open outbound connections to random IPs:23
-  40s+    compromised: scanning + spawns a new binary + CPU burn
+  ramp     baseline -> scan-only -> full compromise (stays malicious)
+  burst    baseline -> full compromise in one step (stays malicious)
+  recover  baseline -> full compromise -> returns to benign
+           (exercises the policy's auto-recovery / hysteresis path)
+  benign   never malicious (false-positive baseline)
+
 The process stays in Konro's cgroup, so SecurityMonitor observes the
-behaviour via /proc/net and cgroup counters and the policy reacts.
+behaviour via /proc/net and the cgroup counters and the policy reacts.
 """
 import os, socket, time, random, subprocess, threading, shutil
 
 START = time.time()
-SCENARIO = os.environ.get("SCENARIO", "ramp")   # "ramp" or "burst"
+SCENARIO = os.environ.get("SCENARIO", "ramp")
 socks = []
 
 
@@ -42,6 +44,7 @@ def cpu_burn(stop):
 spawned = False
 burn_stop = threading.Event()
 
+
 def go_full():
     global spawned
     scan(150)
@@ -55,12 +58,37 @@ def go_full():
         spawned = True
 
 
+def go_benign():
+    # Stop being malicious: end the CPU burn and drop every half-open socket so
+    # the fan-out, half-open and CPU factors fall back below their EWMA
+    # baselines. newExec already fired once and does not recur. With the
+    # monitor publishing every period, the SAI decays and the policy's dwell
+    # hysteresis steps the app back down to OBSERVE.
+    burn_stop.set()
+    while socks:
+        try:
+            socks.pop().close()
+        except OSError:
+            pass
+
+
 while True:
     el = time.time() - START
-    if el < 22:
+    if SCENARIO == "benign":
+        time.sleep(2)                       # idle sensor, never malicious
+    elif el < 22:
         time.sleep(2)                       # baseline / warmup
     elif SCENARIO == "burst":
-        go_full()                           # straight to full compromise
+        go_full()
+        time.sleep(2)
+    elif SCENARIO == "recover":
+        # Scan-only malicious window: enough to escalate to THROTTLE/RESTRICT
+        # but below the QUARANTINE ceiling (which is sticky and manual-clear
+        # only), so the auto-recovery / dwell path can be exercised.
+        if el < 50:
+            scan(120)                       # malicious window (no new exec / cpu burn)
+        else:
+            go_benign()                     # return to benign -> auto-recovery
         time.sleep(2)
     elif el < 40:
         scan(120)                           # ramp: scanning only
