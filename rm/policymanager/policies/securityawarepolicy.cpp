@@ -167,6 +167,9 @@ void SecurityAwarePolicy::applyState(AppMappingPtr appMapping, SecState state)
         // would destroy the per-app isolation addApp established.
         appMapping->setQuarantine(false);
         appMapping->setCpuMax(rmcommon::NumericValue("max"));
+        // also lift the RESTRICT pids.max clamp, otherwise a recovered app
+        // stays capped at its baseline process count.
+        appMapping->setMaxPids(rmcommon::NumericValue("max"));
         if (numPUs > 0) {
             auto it = assignedPu_.find(pid);
             int pu = (it != assignedPu_.end()) ? it->second : 0;
