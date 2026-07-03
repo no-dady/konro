@@ -23,7 +23,7 @@ class KonroManager {
     int cfgSecurityPeriod_;
     // SAI weights + EWMA alpha + publish threshold
     float cfgWFanout_, cfgWHalfOpen_, cfgWForkRate_, cfgWNewExec_, cfgWCpuBurst_;
-    float cfgWEgress_, cfgWMem_;
+    float cfgWEgress_, cfgWMem_, cfgWRawSocket_;
     float cfgEwmaAlpha_;
     float cfgPublishThreshold_;
     // SAI escalation thresholds for the containment state machine

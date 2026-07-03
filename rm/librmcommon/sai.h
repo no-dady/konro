@@ -16,6 +16,7 @@ struct SecurityFactors {
     float cpuBurst  = 0.0f;     // C1 cpu usage delta
     float egress    = 0.0f;     // A3 outbound byte rate (network flood)
     float memGrowth = 0.0f;     // D1 memory.current growth rate (exhaustion)
+    float rawSocket = 0.0f;     // A4 raw/packet socket open (discrete 0/1)
 };
 
 /*! Weights for the composite SAI; configurable, any factor can be zeroed.
@@ -23,7 +24,8 @@ struct SecurityFactors {
 struct SaiWeights {
     float fanout = 0.30f, halfOpen = 0.25f, forkRate = 0.15f,
           newExec = 0.20f, cpuBurst = 0.10f,
-          egress = 0.15f, memGrowth = 0.10f;
+          egress = 0.15f, memGrowth = 0.10f,
+          rawSocket = 0.20f;
 };
 
 /*!
