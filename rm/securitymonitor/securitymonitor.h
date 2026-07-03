@@ -33,6 +33,7 @@ class SecurityMonitor : public rmcommon::BaseThread {
         sec::Ewma egress;
         sec::Ewma memGrowth;
         std::set<std::string> knownExecs;
+        bool rawSocketFired = false;
         uint64_t lastCpuUsec = 0;
         bool cpuInit = false;
         uint64_t lastTxBytes = 0;
@@ -63,6 +64,8 @@ class SecurityMonitor : public rmcommon::BaseThread {
                           int &distinctDests, int &synSent, int &total);
     /*! Reads /proc/<pid>/comm (the executable name). */
     std::string getProcessComm(pid_t pid);
+    /*! Returns true if any of the app's socket inodes appears in /proc/net/raw{,6} or /proc/net/packet. */
+    bool hasRawSockets(const std::set<ino_t> &inodes, pid_t netnsPid);
     /*! Reads cumulative cgroup cpu usage in microseconds (cpu.stat usage_usec). */
     uint64_t getCpuUsec(std::shared_ptr<rmcommon::App> app);
     /*! Sums transmitted bytes across all interfaces (excluding lo) from the

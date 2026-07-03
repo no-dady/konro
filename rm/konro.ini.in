@@ -12,6 +12,8 @@ weight_cpuburst = 0.10
 ; A3 outbound byte rate (network flood) and D1 memory.current growth (exhaustion)
 weight_egress = 0.15
 weight_mem = 0.10
+; A4 raw/af_packet socket present (discrete, high-confidence)
+weight_rawsocket = 0.20
 ; EWMA smoothing factor for the per-app baseline
 ewma_alpha = 0.30
 ; publish a SecurityEvent when SAI reaches this value

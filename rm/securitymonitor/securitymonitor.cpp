@@ -139,6 +139,58 @@ void SecurityMonitor::countConnections(const set<ino_t> &inodes, pid_t netnsPid,
     distinctDests = static_cast<int>(dests.size());
 }
 
+bool SecurityMonitor::hasRawSockets(const set<ino_t> &inodes, pid_t netnsPid)
+{
+    if (inodes.empty())
+        return false;
+    string base = netnsPid > 0 ? ("/proc/" + to_string(netnsPid) + "/net/") : string("/proc/net/");
+
+    // /proc/net/raw{,6}: sl local rem ... inode ref pointer drops   (inode = field 9)
+    // /proc/net/packet:  sk RefCnt Type Proto Iface R Rmem User Inode  (inode = last field)
+    auto indexOfInode = [&](const string &path, int idx) -> bool {
+        ifstream fs(path);
+        if (!fs.is_open())
+            return false;
+        string line;
+        getline(fs, line);          // skip header
+        while (getline(fs, line)) {
+            istringstream is(line);
+            string field;
+            for (int i = 0; i <= idx; i++) {
+                if (!(is >> field))
+                    break;
+                if (i == idx) {
+                    ino_t inode = static_cast<ino_t>(strtoul(field.c_str(), nullptr, 10));
+                    if (inode > 0 && inodes.find(inode) != inodes.end())
+                        return true;
+                }
+            }
+        }
+        return false;
+    };
+    if (indexOfInode(base + "raw", 9))
+        return true;
+    if (indexOfInode(base + "raw6", 9))
+        return true;
+    // packet: inode is the last field — walk backwards
+    {
+        ifstream fs(base + "packet");
+        if (fs.is_open()) {
+            string line;
+            getline(fs, line);
+            while (getline(fs, line)) {
+                istringstream is(line);
+                string last;
+                while (is >> last) { }
+                ino_t inode = static_cast<ino_t>(strtoul(last.c_str(), nullptr, 10));
+                if (inode > 0 && inodes.find(inode) != inodes.end())
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 string SecurityMonitor::getProcessComm(pid_t pid)
 {
     ostringstream path;
@@ -278,6 +330,16 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
         }
     }
 
+    // A4 raw/packet socket (discrete). Fires at most once per app lifetime.
+    // Note: only mark fired when !warming so that a detection during warmup
+    // does not suppress the real alert once the baseline period ends.
+    if (hasRawSockets(inodes, netnsPid)) {
+        if (!warming && !base.rawSocketFired) {
+            base.rawSocketFired = true;
+            f.rawSocket = 1.0f;
+        }
+    }
+
     // C1 cpu burst (rate of cgroup cpu usage between scans)
     uint64_t cpuNow = getCpuUsec(app);
     if (base.cpuInit && securityPeriod_ > 0) {
@@ -314,12 +376,14 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
     // line on benign samples; the event itself always fires. A low-SAI event
     // with empty labels is correct and cheap (the period is measured in
     // seconds). See testsecuritypolicy::test_full_recovery_to_observe.
+    if (f.fanout > 0.0f) labels << "fanout ";
+    if (f.halfOpen > 0.0f) labels << "scan ";
+    if (f.cpuBurst > 0.0f) labels << "cpu ";
+    if (f.egress > 0.0f) labels << "egress ";
+    if (f.memGrowth > 0.0f) labels << "mem ";
+    if (f.rawSocket > 0.0f) labels << "rawsock ";
+
     if (sai >= publishThreshold_) {
-        if (f.fanout > 0.5f) labels << "fanout ";
-        if (f.halfOpen > 0.5f) labels << "scan ";
-        if (f.cpuBurst > 0.5f) labels << "cpu ";
-        if (f.egress > 0.5f) labels << "egress ";
-        if (f.memGrowth > 0.5f) labels << "mem ";
         cat_.info("SECURITYMONITOR publishing SecurityEvent for pid %ld, sai=%.3f, dests=%d synSent=%d procs=%zu",
                   (long)pid, sai, distinctDests, synSent, pids.size());
     }
