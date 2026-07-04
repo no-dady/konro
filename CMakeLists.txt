@@ -4,7 +4,7 @@
 # To override cgroup base directory:
 #       cmake -DCGROUPBASEDIR:STRING=/sys/fs/cgroup/unified
 
-cmake_minimum_required (VERSION 3.5.0)
+cmake_minimum_required (VERSION 3.10...3.31)
 project (konro)
 
 list (APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
