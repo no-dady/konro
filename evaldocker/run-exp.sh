@@ -17,7 +17,7 @@ done
 echo "+cpu +pids +memory" > "$CG/cgroup.subtree_control" 2>/dev/null || true
 echo "ROOT subtree_control: $(cat "$CG/cgroup.subtree_control" 2>/dev/null)"
 
-/usr/local/bin/konro --config /etc/konro.ini --loglevel INFO > "$LOG" 2>&1 &
+stdbuf -oL -eL /usr/local/bin/konro --config /etc/konro.ini --loglevel INFO > "$LOG" 2>&1 &
 KONRO_PID=$!
 sleep 3
 
