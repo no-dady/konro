@@ -5,10 +5,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     # install dependencies
     - name: Install dependencies
-      run: sudo apt-get update # && sudo apt-get install -yq something
+      run: |
+        sudo apt-get update
+        sudo apt-get install -yq \
+          cmake g++ make pkg-config \
+          liblog4cpp5-dev libhwloc-dev libsensors-dev
     # build project
     - name: mkir build
       run: mkdir build
