@@ -32,6 +32,10 @@ class SecurityMonitor : public rmcommon::BaseThread {
         sec::Ewma cpuBurst;
         sec::Ewma egress;
         sec::Ewma memGrowth;
+        // Identity of binaries seen during warmup, used by the B2
+        // unexpected-exec factor. Stored as the real executable path from
+        // /proc/<pid>/exe (readlink), not /proc/<pid>/comm: comm is
+        // attacker-controlled via prctl(PR_SET_NAME), the exe symlink is not.
         std::set<std::string> knownExecs;
         bool rawSocketFired = false;
         uint64_t lastCpuUsec = 0;
@@ -62,8 +66,11 @@ class SecurityMonitor : public rmcommon::BaseThread {
         connections whose inode belongs to the given set (from /proc/net/tcp{,6}). */
     void countConnections(const std::set<ino_t> &inodes, pid_t netnsPid,
                           int &distinctDests, int &synSent, int &total);
-    /*! Reads /proc/<pid>/comm (the executable name). */
-    std::string getProcessComm(pid_t pid);
+    /*! Resolves the real executable path of a process via readlink on
+        /proc/<pid>/exe. Returns an empty string on error or if the link
+        cannot be read. Unlike /proc/<pid>/comm, this path is set by the
+        kernel at exec time and is not affected by prctl(PR_SET_NAME). */
+    std::string getProcessExe(pid_t pid);
     /*! Returns true if any of the app's socket inodes appears in /proc/net/raw{,6} or /proc/net/packet. */
     bool hasRawSockets(const std::set<ino_t> &inodes, pid_t netnsPid);
     /*! Reads cumulative cgroup cpu usage in microseconds (cpu.stat usage_usec). */

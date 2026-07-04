@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <dirent.h>
 #include <unistd.h>
+#include <limits.h>
 
 using namespace std;
 
@@ -191,15 +192,16 @@ bool SecurityMonitor::hasRawSockets(const set<ino_t> &inodes, pid_t netnsPid)
     return false;
 }
 
-string SecurityMonitor::getProcessComm(pid_t pid)
+string SecurityMonitor::getProcessExe(pid_t pid)
 {
     ostringstream path;
-    path << "/proc/" << pid << "/comm";
-    ifstream fs(path.str());
-    string comm;
-    if (fs.is_open())
-        getline(fs, comm);
-    return comm;
+    path << "/proc/" << pid << "/exe";
+    char buf[PATH_MAX];
+    ssize_t n = readlink(path.str().c_str(), buf, sizeof(buf) - 1);
+    if (n <= 0)
+        return {};
+    buf[n] = '\0';
+    return string(buf, static_cast<size_t>(n));
 }
 
 uint64_t SecurityMonitor::getCpuUsec(shared_ptr<rmcommon::App> app)
@@ -314,18 +316,23 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
     f.forkRate = base.forkRate.deviation(procCount);
     base.forkRate.update(procCount, alpha_);
 
-    // B2 unexpected exec (discrete). Populate the known set during warmup
-    // (reuse forkRate's warmup gate); after that, any new binary fires.
+    // B2 unexpected exec (discrete). Identify each process by its real
+    // executable path (/proc/<pid>/exe, resolved by readlink) rather than
+    // /proc/<pid>/comm: comm is attacker-controlled via prctl(PR_SET_NAME),
+    // the exe symlink is set by the kernel at exec time and can only change
+    // by exec'ing a different binary, which itself yields a new path.
+    // Populate the known set during warmup (reuse forkRate's warmup gate);
+    // after warmup, any unseen exe path fires.
     bool warming = base.forkRate.warming();
     for (pid_t p : pids) {
-        string comm = getProcessComm(p);
-        if (comm.empty())
+        string exe = getProcessExe(p);
+        if (exe.empty())
             continue;
-        if (base.knownExecs.find(comm) == base.knownExecs.end()) {
-            base.knownExecs.insert(comm);
+        if (base.knownExecs.find(exe) == base.knownExecs.end()) {
+            base.knownExecs.insert(exe);
             if (!warming) {
                 f.newExec = 1.0f;
-                labels << "exec:" << comm << " ";
+                labels << "exec:" << exe << " ";
             }
         }
     }
