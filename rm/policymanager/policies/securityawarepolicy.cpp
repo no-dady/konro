@@ -194,7 +194,7 @@ void SecurityAwarePolicy::applyState(AppMappingPtr appMapping, SecState state)
         int pidsCap = baselinePids > 0 ? baselinePids
                                        : (appMapping->getCurrentPids() > 0
                                               ? appMapping->getCurrentPids()
-                                              : 2);
+                                              : 1);
         appMapping->setMaxPids(pidsCap);
         cat.warn("SECURITYAWAREPOLICY RESTRICT PID %ld cpu.max=20%% PU=0 pids=%d",
                  (long)pid, pidsCap);

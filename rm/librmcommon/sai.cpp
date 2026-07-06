@@ -29,14 +29,21 @@ static float clamp01(float v) {
 }
 
 float computeSai(const SecurityFactors &f, const SaiWeights &w) {
-    return clamp01(w.fanout * f.fanout +
-                   w.halfOpen * f.halfOpen +
-                   w.forkRate * f.forkRate +
-                   w.newExec * f.newExec +
-                   w.cpuBurst * f.cpuBurst +
-                   w.egress * f.egress +
-                   w.memGrowth * f.memGrowth +
-                   w.rawSocket * f.rawSocket);
+    float s = w.fanout * f.fanout +
+              w.halfOpen * f.halfOpen +
+              w.forkRate * f.forkRate +
+              w.newExec * f.newExec +
+              w.cpuBurst * f.cpuBurst +
+              w.egress * f.egress +
+              w.memGrowth * f.memGrowth +
+              w.rawSocket * f.rawSocket;
+    // Defence in depth: a NaN/inf from any factor (e.g. a division path that
+    // slipped a guard) must never reach the threshold comparisons in the
+    // state machine, where it would fail every comparison and leave the app
+    // stuck in OBSERVE. Treat non-finite SAI as "no signal".
+    if (!std::isfinite(s))
+        return 0.0f;
+    return clamp01(s);
 }
 
 } // namespace sec

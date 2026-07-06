@@ -56,25 +56,69 @@ void SecurityMonitor::processRemoveEvent(std::shared_ptr<const rmcommon::RemoveE
     }
 }
 
-vector<pid_t> SecurityMonitor::getCgroupPids(shared_ptr<rmcommon::App> app)
+vector<SecurityMonitor::PidSample> SecurityMonitor::getCgroupPids(shared_ptr<rmcommon::App> app)
 {
-    vector<pid_t> pids;
+    vector<PidSample> pids;
     vector<string> lines = pc::CGroupControl().getContent("pids", "cgroup.procs", app);
     for (const string &line : lines) {
         if (!line.empty()) {
             pid_t pid = static_cast<pid_t>(strtol(line.c_str(), nullptr, 10));
             if (pid > 0) {
-                pids.push_back(pid);
+                // Capture starttime so later per-pid /proc reads can detect a
+                // recycled pid: if the pid leaves the cgroup and the kernel
+                // reuses it for an unrelated process, the starttime differs
+                // and the sample is dropped instead of reading the wrong
+                // process's /proc state.
+                pids.push_back({pid, getProcessStarttime(pid)});
             }
         }
     }
     return pids;
 }
 
-map<ino_t, pid_t> SecurityMonitor::socketInodeToPid(const vector<pid_t> &pids)
+unsigned long SecurityMonitor::getProcessStarttime(pid_t pid)
+{
+    ostringstream path;
+    path << "/proc/" << pid << "/stat";
+    ifstream f(path.str());
+    if (!f.is_open())
+        return 0;
+    string line;
+    getline(f, line);
+    // comm is wrapped in parens and may contain spaces; skip past the last ')'
+    // so the remaining whitespace-delimited fields parse cleanly. Field 22 of
+    // /proc/<pid>/stat (starttime) is the 20th token after the closing paren
+    // (state=3 ... itrealvalue=21, starttime=22).
+    size_t rp = line.rfind(')');
+    if (rp == string::npos)
+        return 0;
+    istringstream is(line.substr(rp + 1));
+    string tok;
+    for (int i = 0; i < 19; ++i) {
+        if (!(is >> tok))
+            return 0;
+    }
+    unsigned long st = 0;
+    is >> st;
+    return is.fail() ? 0 : st;
+}
+
+bool SecurityMonitor::verifyStarttime(pid_t pid, unsigned long expected)
+{
+    if (expected == 0)
+        return true;   // starttime never captured; don't block the read
+    return getProcessStarttime(pid) == expected;
+}
+
+map<ino_t, pid_t> SecurityMonitor::socketInodeToPid(const vector<PidSample> &pids)
 {
     map<ino_t, pid_t> result;
-    for (pid_t pid : pids) {
+    for (const PidSample &s : pids) {
+        // Drop pids that were recycled between the cgroup snapshot and now:
+        // their /proc/<pid>/fd entries belong to a different process.
+        if (!verifyStarttime(s.pid, s.starttime))
+            continue;
+        pid_t pid = s.pid;
         ostringstream fdDir;
         fdDir << "/proc/" << pid << "/fd";
         DIR *d = opendir(fdDir.str().c_str());
@@ -102,6 +146,7 @@ map<ino_t, pid_t> SecurityMonitor::socketInodeToPid(const vector<pid_t> &pids)
 }
 
 void SecurityMonitor::countConnections(const set<ino_t> &inodes, pid_t netnsPid,
+                                       unsigned long netnsStarttime,
                                        int &distinctDests, int &synSent, int &total)
 {
     distinctDests = 0;
@@ -112,7 +157,18 @@ void SecurityMonitor::countConnections(const set<ino_t> &inodes, pid_t netnsPid,
     // (/proc/<pid>/net), so this works whether Konro runs inside the app's
     // container or on the host managing a containerised app. Falls back to
     // the caller's namespace when no pid is available.
-    string base = netnsPid > 0 ? ("/proc/" + to_string(netnsPid) + "/net/") : string("/proc/net/");
+    string base;
+    if (netnsPid > 0) {
+        // Refuse to read a recycled pid's namespace: a pid that left the cgroup
+        // and was reused by the kernel now points at an unrelated process, so
+        // /proc/<netnsPid>/net would report a foreign namespace's connections.
+        // Report nothing rather than attribute someone else's traffic here.
+        if (!verifyStarttime(netnsPid, netnsStarttime))
+            return;
+        base = "/proc/" + to_string(netnsPid) + "/net/";
+    } else {
+        base = "/proc/net/";
+    }
     const string files[] = { base + "tcp", base + "tcp6" };
     for (const string &file : files) {
         ifstream fs(file);
@@ -140,11 +196,21 @@ void SecurityMonitor::countConnections(const set<ino_t> &inodes, pid_t netnsPid,
     distinctDests = static_cast<int>(dests.size());
 }
 
-bool SecurityMonitor::hasRawSockets(const set<ino_t> &inodes, pid_t netnsPid)
+bool SecurityMonitor::hasRawSockets(const set<ino_t> &inodes, pid_t netnsPid,
+                                     unsigned long netnsStarttime)
 {
     if (inodes.empty())
         return false;
-    string base = netnsPid > 0 ? ("/proc/" + to_string(netnsPid) + "/net/") : string("/proc/net/");
+    // Do not read a recycled pid's namespace (see countConnections): a raw
+    // socket detected in a foreign namespace would be a false positive.
+    string base;
+    if (netnsPid > 0) {
+        if (!verifyStarttime(netnsPid, netnsStarttime))
+            return false;
+        base = "/proc/" + to_string(netnsPid) + "/net/";
+    } else {
+        base = "/proc/net/";
+    }
 
     // /proc/net/raw{,6}: sl local rem ... inode ref pointer drops   (inode = field 9)
     // /proc/net/packet:  sk RefCnt Type Proto Iface R Rmem User Inode  (inode = last field)
@@ -192,8 +258,14 @@ bool SecurityMonitor::hasRawSockets(const set<ino_t> &inodes, pid_t netnsPid)
     return false;
 }
 
-string SecurityMonitor::getProcessExe(pid_t pid)
+string SecurityMonitor::getProcessExe(pid_t pid, unsigned long starttime)
 {
+    // Refuse to read a recycled pid's exe link: a pid that left the cgroup and
+    // was reused by the kernel points at an unrelated binary, which would
+    // either fire a spurious B2 alert or let an attacker match a knownExecs
+    // entry and suppress a real detection.
+    if (!verifyStarttime(pid, starttime))
+        return {};
     ostringstream path;
     path << "/proc/" << pid << "/exe";
     char buf[PATH_MAX];
@@ -217,13 +289,20 @@ uint64_t SecurityMonitor::getCpuUsec(shared_ptr<rmcommon::App> app)
     return 0;
 }
 
-uint64_t SecurityMonitor::getTxBytes(pid_t netnsPid)
+uint64_t SecurityMonitor::getTxBytes(pid_t netnsPid, unsigned long netnsStarttime)
 {
     // Read transmitted bytes from the app's own network namespace, mirroring
     // countConnections (/proc/<pid>/net). Falls back to the caller's namespace
-    // when no pid is available.
-    string path = netnsPid > 0 ? ("/proc/" + to_string(netnsPid) + "/net/dev")
-                                : string("/proc/net/dev");
+    // when no pid is available. A recycled netnsPid yields 0 rather than
+    // reading a foreign namespace's interface counters.
+    string path;
+    if (netnsPid > 0) {
+        if (!verifyStarttime(netnsPid, netnsStarttime))
+            return 0;
+        path = "/proc/" + to_string(netnsPid) + "/net/dev";
+    } else {
+        path = "/proc/net/dev";
+    }
     ifstream fs(path);
     if (!fs.is_open())
         return 0;
@@ -278,15 +357,16 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
     pid_t pid = app->getPid();
     AppBaseline &base = baselines_[pid];
 
-    vector<pid_t> pids = getCgroupPids(app);
+    vector<PidSample> pids = getCgroupPids(app);
     map<ino_t, pid_t> inodeMap = socketInodeToPid(pids);
     set<ino_t> inodes;
     for (const auto &kv : inodeMap)
         inodes.insert(kv.first);
 
     int distinctDests = 0, synSent = 0, total = 0;
-    pid_t netnsPid = pids.empty() ? 0 : pids.front();
-    countConnections(inodes, netnsPid, distinctDests, synSent, total);
+    PidSample netns = pids.empty() ? PidSample{} : pids.front();
+    pid_t netnsPid = netns.pid;
+    countConnections(inodes, netnsPid, netns.starttime, distinctDests, synSent, total);
     float halfOpenRatio = total > 0 ? static_cast<float>(synSent) / total : 0.0f;
 
     sec::SecurityFactors f;
@@ -300,7 +380,7 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
 
     // A3 egress byte rate (network flood). Reuse the netnsPid already computed
     // for countConnections; read tx bytes from the app's net/dev.
-    uint64_t txNow = getTxBytes(netnsPid);
+    uint64_t txNow = getTxBytes(netnsPid, netns.starttime);
     if (base.egressInit && securityPeriod_ > 0) {
         float rate = (txNow >= base.lastTxBytes)
                      ? static_cast<float>(txNow - base.lastTxBytes) / securityPeriod_
@@ -324,8 +404,8 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
     // Populate the known set during warmup (reuse forkRate's warmup gate);
     // after warmup, any unseen exe path fires.
     bool warming = base.forkRate.warming();
-    for (pid_t p : pids) {
-        string exe = getProcessExe(p);
+    for (const PidSample &s : pids) {
+        string exe = getProcessExe(s.pid, s.starttime);
         if (exe.empty())
             continue;
         if (base.knownExecs.find(exe) == base.knownExecs.end()) {
@@ -340,7 +420,7 @@ void SecurityMonitor::scanApp(shared_ptr<rmcommon::App> app)
     // A4 raw/packet socket (discrete). Fires at most once per app lifetime.
     // Note: only mark fired when !warming so that a detection during warmup
     // does not suppress the real alert once the baseline period ends.
-    if (hasRawSockets(inodes, netnsPid)) {
+    if (hasRawSockets(inodes, netnsPid, netns.starttime)) {
         if (!warming && !base.rawSocketFired) {
             base.rawSocketFired = true;
             f.rawSocket = 1.0f;
